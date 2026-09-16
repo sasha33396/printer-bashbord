@@ -1,0 +1,25 @@
+services:
+  api:
+    build: ./backend
+    container_name: printer_api
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - db_data:/app/data
+    ports:
+      - "0.0.0.0:8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./data/printer_dashboard.db
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: printer_frontend
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  db_data:
