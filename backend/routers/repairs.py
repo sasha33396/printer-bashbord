@@ -58,6 +58,21 @@ def _update_device_counter(device: Device, counter: int) -> None:
     device.counter_checked_at = datetime.now(timezone.utc).isoformat()
 
 
+def _complete_repair(db: Session, record: RepairRecord) -> RepairRecord:
+    if record.repair_status == RepairStatus.completed:
+        return record
+    device = db.get(Device, record.device_id)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    end_counter, delta = _capture_completion(device, record.page_counter)
+    record.repair_status = RepairStatus.completed
+    record.completion_page_counter = end_counter
+    record.page_counter_delta = delta
+    _update_device_counter(device, end_counter)
+    db.commit()
+    return _with_device(db).filter(RepairRecord.id == record.id).first()
+
+
 @router.get("", response_model=List[RepairRecordRead])
 def list_repairs(
     device_id: Optional[int] = None,
@@ -122,6 +137,15 @@ def update_repair(
         setattr(record, field, value)
     db.commit()
     return _with_device(db).filter(RepairRecord.id == repair_id).first()
+
+
+@router.post("/{repair_id}/complete", response_model=RepairRecordRead)
+def complete_repair(
+    repair_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    return _complete_repair(db, _get_or_404(db, repair_id))
 
 
 @router.delete("/{repair_id}", status_code=status.HTTP_204_NO_CONTENT)

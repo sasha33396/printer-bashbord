@@ -6,7 +6,7 @@ import {
   Tabs, Statistic, Row, Col, message, Spin,
 } from 'antd'
 import {
-  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
+  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
@@ -94,8 +94,13 @@ function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onS
     try {
       const payload = { ...values, device_id: deviceId, date: values.date.format('YYYY-MM-DD') }
       if (editing) {
-        const { data } = await api.put(`/repairs/${editing.id}`, payload)
-        if (editing.repair_status === 'in_progress' && data.repair_status === 'completed') {
+        const completing = editing.repair_status !== 'completed' && payload.repair_status === 'completed'
+        const updatePayload = completing
+          ? { ...payload, repair_status: editing.repair_status }
+          : payload
+        await api.put(`/repairs/${editing.id}`, updatePayload)
+        if (completing) {
+          const { data } = await api.post(`/repairs/${editing.id}/complete`)
           message.success(`Ремонт завершён. Разница счётчика: ${data.page_counter_delta} стр.`)
         } else {
           message.success('Ремонт обновлён')
@@ -287,6 +292,7 @@ export default function DeviceCardPage() {
   const [counterLoading, setCounterLoading] = useState(false)
   const [repairCounterLoading, setRepairCounterLoading] = useState(false)
   const [repairsLoading,     setRepairsLoading]     = useState(false)
+  const [completingRepairId, setCompletingRepairId] = useState(null)
   const [consumablesLoading, setConsumablesLoading] = useState(false)
 
   const [repairModal,     setRepairModal]     = useState(false)
@@ -384,6 +390,21 @@ export default function DeviceCardPage() {
     } catch { message.error('Ошибка удаления') }
   }
 
+  const handleCompleteRepair = async (repairId) => {
+    setCompletingRepairId(repairId)
+    try {
+      const { data } = await api.post(`/repairs/${repairId}/complete`)
+      message.success(`Ремонт завершён. Разница счётчика: ${data.page_counter_delta} стр.`)
+      loadRepairs()
+      loadDevice()
+    } catch (err) {
+      const detail = err.response?.data?.detail
+      message.error(typeof detail === 'string' ? detail : 'Не удалось завершить ремонт')
+    } finally {
+      setCompletingRepairId(null)
+    }
+  }
+
   const handleDeleteConsumable = async (logId) => {
     try {
       await api.delete(`/consumables/${logId}`)
@@ -436,9 +457,27 @@ export default function DeviceCardPage() {
       render: (v) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
-      title: '', key: 'actions', width: 80, align: 'right',
+      title: '', key: 'actions', width: 200, align: 'right', fixed: 'right',
       render: (_, r) => (
         <Space size={4}>
+          {r.repair_status === 'in_progress' && (
+            <Popconfirm
+              title="Завершить ремонт?"
+              description="Будет получен текущий счётчик и рассчитана разница."
+              okText="Завершить"
+              cancelText="Отмена"
+              onConfirm={() => handleCompleteRepair(r.id)}
+            >
+              <Button
+                icon={<CheckOutlined />}
+                size="small"
+                type="primary"
+                loading={completingRepairId === r.id}
+              >
+                Завершить
+              </Button>
+            </Popconfirm>
+          )}
           <Button icon={<EditOutlined />} size="small"
             onClick={() => { setEditingRepair(r); setRepairModal(true) }} />
           <Popconfirm title="Удалить ремонт?" okText="Удалить" cancelText="Отмена"
