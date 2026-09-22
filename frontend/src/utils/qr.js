@@ -7,12 +7,24 @@ const escapeHtml = (value) => String(value ?? '')
   .replaceAll('"', '&quot;')
   .replaceAll("'", '&#039;')
 
+function qrBaseUrl() {
+  const configured = String(import.meta.env.VITE_PUBLIC_APP_URL || '').trim()
+  if (!configured) return window.location.origin
+  try {
+    const url = new URL(configured)
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error()
+    return url.origin
+  } catch {
+    throw new Error('Некорректный PUBLIC_APP_URL. Укажите адрес вида http://192.168.1.10:3000')
+  }
+}
+
 export async function printQrLabel({ path, inventoryNumber, title, subtitle }) {
   const printWindow = window.open('', '_blank', 'width=520,height=680')
   if (!printWindow) throw new Error('Браузер заблокировал окно печати')
 
-  const url = new URL(path, window.location.origin).toString()
   try {
+    const url = new URL(path, qrBaseUrl()).toString()
     const qr = await QRCode.toDataURL(url, { width: 360, margin: 1, errorCorrectionLevel: 'M' })
     printWindow.document.write(`<!doctype html>
       <html lang="ru"><head><meta charset="utf-8"><title>Инвентарная этикетка</title>

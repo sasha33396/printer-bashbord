@@ -8,6 +8,8 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --prefer-offline 2>/dev/null || npm install
 
 COPY . .
+ARG VITE_PUBLIC_APP_URL
+ENV VITE_PUBLIC_APP_URL=$VITE_PUBLIC_APP_URL
 RUN npm run build
 
 FROM nginx:alpine
