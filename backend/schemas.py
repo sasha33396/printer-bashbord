@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import date
 from typing import Annotated, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict

@@ -57,6 +57,21 @@ const fmt     = (v) =>
   new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 2 }).format(v ?? 0)
 const fmtDate = (v) => (v ? dayjs(v).format('DD.MM.YYYY') : '—')
 
+const apiErrorMessage = (err, fallback) => {
+  const detail = err.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        const field = item.loc?.at(-1)
+        return field ? `${field}: ${item.msg}` : item.msg
+      })
+      .filter(Boolean)
+      .join('; ') || fallback
+  }
+  return fallback
+}
+
 // ---------------------------------------------------------------------------
 // RepairModal
 // ---------------------------------------------------------------------------
@@ -111,7 +126,7 @@ function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onS
       }
       onSaved()
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Ошибка сохранения')
+      message.error(apiErrorMessage(err, 'Ошибка сохранения'))
     } finally {
       setSaving(false)
     }
@@ -398,8 +413,7 @@ export default function DeviceCardPage() {
       loadRepairs()
       loadDevice()
     } catch (err) {
-      const detail = err.response?.data?.detail
-      message.error(typeof detail === 'string' ? detail : 'Не удалось завершить ремонт')
+      message.error(apiErrorMessage(err, 'Не удалось завершить ремонт'))
     } finally {
       setCompletingRepairId(null)
     }
