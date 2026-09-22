@@ -130,7 +130,7 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
           </Col>
           <Col span={12}>
             <Form.Item name="tracking_type" label="Способ учёта" rules={[{ required: true }]}>
-              <Select options={[
+              <Select disabled={!!editing} options={[
                 { value: 'quantity', label: 'По количеству' },
                 { value: 'asset', label: 'Поштучно, с инвентарным номером' },
               ]} />
@@ -519,6 +519,9 @@ export default function WarehousePage() {
     title: '', key: 'actions', width: 280, fixed: 'right', align: 'right',
     render: (_, row) => (
       <Space size={4}>
+        {row.tracking_type === 'asset' && (
+          <Button size="small" type="primary" onClick={() => navigate(`/warehouse/items/${row.id}`)}>Открыть</Button>
+        )}
         {row.tracking_type === 'quantity' && <>
           <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setMovement({ item: row, type: 'receipt' })}>Приход</Button>
           <Button size="small" icon={<MinusOutlined />} disabled={row.current_quantity <= 0} onClick={() => setMovement({ item: row, type: 'issue' })}>Отправить</Button>
@@ -598,7 +601,7 @@ export default function WarehousePage() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+      <div className="page-toolbar" style={{ marginBottom: 18 }}>
         <Typography.Title level={3} style={{ margin: 0 }}>Склад и оборудование</Typography.Title>
         <Input.Search
           placeholder="Инвентарный №, модель, S/N"
@@ -614,10 +617,11 @@ export default function WarehousePage() {
           onChange={setDepartmentId} options={filterDepartments.map((item) => ({ value: item.id, label: item.name }))}
           style={{ width: 190 }}
         />
-        <Button type="primary" icon={<PlusOutlined />} style={{ marginLeft: 'auto' }}
-          onClick={() => { setEditing(null); setItemModal(true) }}>
-          Добавить позицию
-        </Button>
+        <div className="toolbar-actions">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>
+            Добавить позицию
+          </Button>
+        </div>
       </div>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>

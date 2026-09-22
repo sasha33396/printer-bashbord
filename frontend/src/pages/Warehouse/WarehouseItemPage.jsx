@@ -41,7 +41,7 @@ export default function WarehouseItemPage() {
 
   return (
     <>
-      <Space wrap style={{ marginBottom: 20 }}>
+      <Space wrap className="page-header" style={{ marginBottom: 20 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/warehouse')}>Склад</Button>
         <Typography.Title level={4} style={{ margin: 0 }}>{item.name}</Typography.Title>
         <Tag>{item.category}</Tag>

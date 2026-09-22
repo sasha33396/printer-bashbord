@@ -38,7 +38,7 @@ export default function LoginPage() {
       minHeight: '100vh',
       background: '#f0f2f5',
     }}>
-      <div style={{
+      <div className="login-card" style={{
         width: 380,
         background: '#fff',
         borderRadius: 8,

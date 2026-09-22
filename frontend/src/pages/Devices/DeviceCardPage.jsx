@@ -581,7 +581,7 @@ export default function DeviceCardPage() {
       label: `Ремонты (${repairs.length})`,
       children: (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+          <div className="section-toolbar" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
             <Row gutter={32}>
               <Col>
                 <Statistic title="Всего ремонтов" value={repairs.length} />
@@ -613,7 +613,7 @@ export default function DeviceCardPage() {
       label: `Расходники (${consumables.length})`,
       children: (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+          <div className="section-toolbar" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
             <Row gutter={32}>
               <Col>
                 <Statistic title="Всего записей" value={consumables.length} />
@@ -633,6 +633,7 @@ export default function DeviceCardPage() {
           </div>
           <Table rowKey="id" dataSource={consumables} columns={consumableCols}
             loading={consumablesLoading} size="small"
+            scroll={{ x: 'max-content' }}
             pagination={{ pageSize: 15, hideOnSinglePage: true }}
           />
         </>
@@ -643,7 +644,7 @@ export default function DeviceCardPage() {
   return (
     <>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      <div className="page-header" style={{ marginBottom: 20 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/devices')}>
           Устройства
         </Button>
