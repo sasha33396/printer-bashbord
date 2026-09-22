@@ -7,7 +7,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
-from models import Branch, Department, Device, StockMovement, StockMovementType, WarehouseItem
+from models import (
+    Branch, Department, Device, StockMovement, StockMovementType,
+    WarehouseItem, WorkplaceAssetAssignment,
+)
 from routers.auth import get_current_user
 from schemas import (
     StockMovementCreate,
@@ -115,7 +118,7 @@ def _current_quantity(db: Session, item_id: int) -> int:
     return int(value or 0)
 
 
-def _item_read(item: WarehouseItem, quantity: int) -> WarehouseItemRead:
+def _item_read(item: WarehouseItem, quantity: int, workplace=None) -> WarehouseItemRead:
     return WarehouseItemRead(
         id=item.id,
         sku=item.sku,
@@ -144,6 +147,7 @@ def _item_read(item: WarehouseItem, quantity: int) -> WarehouseItemRead:
         min_quantity=item.min_quantity,
         current_quantity=quantity,
         notes=item.notes,
+        workplace=workplace,
     )
 
 
@@ -175,7 +179,20 @@ def get_item(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Позиция не найдена")
-    return _item_read(item, _current_quantity(db, item.id))
+    assignment = (
+        db.query(WorkplaceAssetAssignment)
+        .options(joinedload(WorkplaceAssetAssignment.workplace))
+        .filter(
+            WorkplaceAssetAssignment.item_id == item.id,
+            WorkplaceAssetAssignment.ended_at.is_(None),
+        )
+        .first()
+    )
+    return _item_read(
+        item,
+        _current_quantity(db, item.id),
+        workplace=assignment.workplace if assignment else None,
+    )
 
 
 @router.post("/items", response_model=WarehouseItemRead, status_code=status.HTTP_201_CREATED)

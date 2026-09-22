@@ -126,6 +126,18 @@ export default function WarehouseItemPage() {
           <DetailField label="Отдел" value={item.department?.name} />
           <DetailField label="Местонахождение" value={item.placement} />
           <DetailField label="Способ учёта" value={item.tracking_type === 'asset' ? 'Поштучный' : 'По количеству'} />
+          <DetailField
+            label="Рабочее место"
+            value={item.workplace && (
+              <Button
+                className="inventory-workplace-link"
+                type="link"
+                onClick={() => navigate(`/workplaces/${item.workplace.id}`)}
+              >
+                {item.workplace.name}
+              </Button>
+            )}
+          />
           <DetailField label="Производитель" value={item.manufacturer} />
           <DetailField label="Модель" value={item.model} />
           <DetailField label="Серийный №" value={item.serial_number} />

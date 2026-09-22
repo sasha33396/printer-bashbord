@@ -279,6 +279,13 @@ class WarehouseItemUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class WarehouseWorkplaceBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+
+
 class WarehouseItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -309,6 +316,7 @@ class WarehouseItemRead(BaseModel):
     min_quantity: int
     current_quantity: int
     notes: Optional[str] = None
+    workplace: Optional[WarehouseWorkplaceBrief] = None
 
 
 class StockMovementCreate(BaseModel):
