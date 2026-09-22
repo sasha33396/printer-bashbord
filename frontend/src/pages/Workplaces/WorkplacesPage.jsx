@@ -42,13 +42,18 @@ export function WorkplaceModal({ open, editing, branches, departments, employees
 
   const save = async () => {
     const values = await form.validateFields()
+    const payload = {
+      ...values,
+      department_id: values.department_id ?? null,
+      employee_id: values.employee_id ?? null,
+    }
     setSaving(true)
     try {
       if (editing) {
-        await api.put(`/workplaces/${editing.id}`, values)
+        await api.put(`/workplaces/${editing.id}`, payload)
         message.success('Рабочее место обновлено')
       } else {
-        await api.post('/workplaces', values)
+        await api.post('/workplaces', payload)
         message.success('Рабочее место создано')
       }
       onSaved()
