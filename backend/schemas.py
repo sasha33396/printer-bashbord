@@ -1,9 +1,11 @@
 from datetime import date as Date
 from typing import Annotated, Optional
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from network import normalize_ip_address
-from models import DeviceType, DeviceStatus, RepairType, RepairStatus, ItemType
+from models import (
+    DeviceType, DeviceStatus, RepairType, RepairStatus, ItemType, StockMovementType,
+)
 
 IPAddress = Annotated[Optional[str], BeforeValidator(normalize_ip_address)]
 
@@ -216,6 +218,60 @@ class ConsumableLogRead(BaseModel):
     quantity: int
     unit_cost: float
     page_counter: Optional[int] = None
+    notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Warehouse
+# ---------------------------------------------------------------------------
+
+class WarehouseItemCreate(BaseModel):
+    sku: Optional[str] = Field(default=None, max_length=100)
+    name: str = Field(min_length=1, max_length=255)
+    category: str = Field(min_length=1, max_length=100)
+    unit: str = Field(default="шт.", min_length=1, max_length=30)
+    min_quantity: int = Field(default=0, ge=0)
+    initial_quantity: int = Field(default=0, ge=0)
+    notes: Optional[str] = None
+
+
+class WarehouseItemUpdate(BaseModel):
+    sku: Optional[str] = Field(default=None, max_length=100)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    category: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    unit: Optional[str] = Field(default=None, min_length=1, max_length=30)
+    min_quantity: Optional[int] = Field(default=None, ge=0)
+    notes: Optional[str] = None
+
+
+class WarehouseItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sku: Optional[str] = None
+    name: str
+    category: str
+    unit: str
+    min_quantity: int
+    current_quantity: int
+    notes: Optional[str] = None
+
+
+class StockMovementCreate(BaseModel):
+    date: Date
+    movement_type: StockMovementType
+    quantity: int = Field(gt=0)
+    notes: Optional[str] = None
+
+
+class StockMovementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    item_id: int
+    date: Date
+    movement_type: StockMovementType
+    quantity: int
     notes: Optional[str] = None
 
 

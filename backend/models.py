@@ -41,6 +41,11 @@ class ItemType(str, enum.Enum):
     other = "other"
 
 
+class StockMovementType(str, enum.Enum):
+    receipt = "receipt"
+    issue = "issue"
+
+
 class Manufacturer(Base):
     __tablename__ = "manufacturers"
 
@@ -125,3 +130,32 @@ class ConsumableLog(Base):
     notes = Column(Text)
 
     device = relationship("Device", back_populates="consumable_logs")
+
+
+class WarehouseItem(Base):
+    __tablename__ = "warehouse_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sku = Column(String(100), unique=True, nullable=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    category = Column(String(100), nullable=False, index=True)
+    unit = Column(String(30), nullable=False, default="шт.")
+    min_quantity = Column(Integer, nullable=False, default=0)
+    notes = Column(Text)
+
+    movements = relationship(
+        "StockMovement", back_populates="item", cascade="all, delete-orphan"
+    )
+
+
+class StockMovement(Base):
+    __tablename__ = "stock_movements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("warehouse_items.id", ondelete="CASCADE"), nullable=False)
+    date = Column(Date, nullable=False)
+    movement_type = Column(SAEnum(StockMovementType), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    notes = Column(Text)
+
+    item = relationship("WarehouseItem", back_populates="movements")

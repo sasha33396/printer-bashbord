@@ -5,6 +5,7 @@ import {
   BarChartOutlined,
   SettingOutlined,
   LogoutOutlined,
+  InboxOutlined,
 } from '@ant-design/icons'
 
 import DevicesPage from './pages/Devices/DevicesPage'
@@ -12,6 +13,7 @@ import DeviceCardPage from './pages/Devices/DeviceCardPage'
 import AnalyticsPage from './pages/Analytics/AnalyticsPage'
 import SettingsPage from './pages/Settings/SettingsPage'
 import LoginPage from './pages/Login/LoginPage'
+import WarehousePage from './pages/Warehouse/WarehousePage'
 
 const { Header, Sider, Content } = Layout
 
@@ -32,6 +34,7 @@ function PrivateRoute({ children }) {
 
 const menuItems = [
   { key: '/devices',   icon: <PrinterOutlined />,  label: <Link to="/devices">Устройства</Link> },
+  { key: '/warehouse', icon: <InboxOutlined />,    label: <Link to="/warehouse">Склад</Link> },
   { key: '/analytics', icon: <BarChartOutlined />,  label: <Link to="/analytics">Аналитика</Link> },
   { key: '/settings',  icon: <SettingOutlined />,   label: <Link to="/settings">Справочники</Link> },
 ]
@@ -82,6 +85,7 @@ function AppLayout() {
             <Route path="/devices" element={<PrivateRoute><DevicesPage /></PrivateRoute>} />
             <Route path="/devices/:id" element={<PrivateRoute><DeviceCardPage /></PrivateRoute>} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
+            <Route path="/warehouse" element={<PrivateRoute><WarehousePage /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
           </Routes>
         </Content>
