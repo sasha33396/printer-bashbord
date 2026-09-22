@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from datetime import date
+from datetime import date as Date
 from typing import Annotated, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 
@@ -83,8 +81,8 @@ class DeviceCreate(BaseModel):
     device_type: DeviceType
     department_id: Optional[int] = None
     location: Optional[str] = None
-    purchase_date: Optional[date] = None
-    warranty_until: Optional[date] = None
+    purchase_date: Optional[Date] = None
+    warranty_until: Optional[Date] = None
     status: DeviceStatus = DeviceStatus.active
     notes: Optional[str] = None
 
@@ -98,8 +96,8 @@ class DeviceUpdate(BaseModel):
     device_type: Optional[DeviceType] = None
     department_id: Optional[int] = None
     location: Optional[str] = None
-    purchase_date: Optional[date] = None
-    warranty_until: Optional[date] = None
+    purchase_date: Optional[Date] = None
+    warranty_until: Optional[Date] = None
     status: Optional[DeviceStatus] = None
     notes: Optional[str] = None
 
@@ -119,8 +117,8 @@ class DeviceRead(BaseModel):
     department_id: Optional[int] = None
     department: Optional[DepartmentRead] = None   # включает вложенный Branch
     location: Optional[str] = None
-    purchase_date: Optional[date] = None
-    warranty_until: Optional[date] = None
+    purchase_date: Optional[Date] = None
+    warranty_until: Optional[Date] = None
     status: DeviceStatus
     notes: Optional[str] = None
 
@@ -143,7 +141,7 @@ class DeviceBrief(BaseModel):
 
 class RepairRecordCreate(BaseModel):
     device_id: int
-    date: date
+    date: Date
     repair_type: RepairType
     repair_status: RepairStatus = RepairStatus.in_progress
     description: str
@@ -155,7 +153,7 @@ class RepairRecordCreate(BaseModel):
 
 class RepairRecordUpdate(BaseModel):
     device_id: Optional[int] = None
-    date: Optional[date] = None
+    date: Optional[Date] = None
     repair_type: Optional[RepairType] = None
     repair_status: Optional[RepairStatus] = None
     description: Optional[str] = None
@@ -171,7 +169,7 @@ class RepairRecordRead(BaseModel):
     id: int
     device_id: int
     device: DeviceBrief
-    date: date
+    date: Date
     repair_type: RepairType
     repair_status: RepairStatus
     description: str
@@ -189,7 +187,7 @@ class RepairRecordRead(BaseModel):
 
 class ConsumableLogCreate(BaseModel):
     device_id: int
-    date: date
+    date: Date
     item_type: ItemType
     quantity: int = 1
     unit_cost: float = 0.0
@@ -199,7 +197,7 @@ class ConsumableLogCreate(BaseModel):
 
 class ConsumableLogUpdate(BaseModel):
     device_id: Optional[int] = None
-    date: Optional[date] = None
+    date: Optional[Date] = None
     item_type: Optional[ItemType] = None
     quantity: Optional[int] = None
     unit_cost: Optional[float] = None
@@ -213,7 +211,7 @@ class ConsumableLogRead(BaseModel):
     id: int
     device_id: int
     device: DeviceBrief
-    date: date
+    date: Date
     item_type: ItemType
     quantity: int
     unit_cost: float
