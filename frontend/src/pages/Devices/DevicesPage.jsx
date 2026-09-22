@@ -488,7 +488,7 @@ export default function DevicesPage() {
       <Typography.Title level={3} style={{ marginTop: 0 }}>Устройства</Typography.Title>
 
       {/* Toolbar */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+      <div className="page-toolbar" style={{ marginBottom: 16 }}>
         <Select
           style={{ width: 176 }}
           placeholder="Все филиалы"
@@ -534,7 +534,7 @@ export default function DevicesPage() {
           allowClear
         />
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div className="toolbar-actions">
           <Button icon={<DownloadOutlined />} onClick={downloadTemplate}>
             Скачать шаблон
           </Button>
@@ -556,6 +556,7 @@ export default function DevicesPage() {
         columns={columns}
         loading={loading}
         size="small"
+        scroll={{ x: 'max-content' }}
         pagination={{
           pageSize: 25,
           showSizeChanger: true,

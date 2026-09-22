@@ -6,10 +6,11 @@ import {
   Tabs, Statistic, Row, Col, message, Spin,
 } from 'antd'
 import {
-  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined,
+  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined, PrinterOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
+import { printQrLabel } from '../../utils/qr'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -427,6 +428,19 @@ export default function DeviceCardPage() {
     } catch { message.error('Ошибка удаления') }
   }
 
+  const printLabel = async () => {
+    try {
+      await printQrLabel({
+        path: `/devices/${device.id}`,
+        inventoryNumber: device.inventory_number,
+        title: device.department?.branch?.name || 'Устройство',
+        subtitle: `${device.manufacturer} ${device.model}`,
+      })
+    } catch (error) {
+      message.error(error.message || 'Не удалось сформировать этикетку')
+    }
+  }
+
   // ---- Table columns ----
 
   const repairCols = [
@@ -567,7 +581,7 @@ export default function DeviceCardPage() {
       label: `Ремонты (${repairs.length})`,
       children: (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+          <div className="section-toolbar" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
             <Row gutter={32}>
               <Col>
                 <Statistic title="Всего ремонтов" value={repairs.length} />
@@ -599,7 +613,7 @@ export default function DeviceCardPage() {
       label: `Расходники (${consumables.length})`,
       children: (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+          <div className="section-toolbar" style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
             <Row gutter={32}>
               <Col>
                 <Statistic title="Всего записей" value={consumables.length} />
@@ -619,6 +633,7 @@ export default function DeviceCardPage() {
           </div>
           <Table rowKey="id" dataSource={consumables} columns={consumableCols}
             loading={consumablesLoading} size="small"
+            scroll={{ x: 'max-content' }}
             pagination={{ pageSize: 15, hideOnSinglePage: true }}
           />
         </>
@@ -629,7 +644,7 @@ export default function DeviceCardPage() {
   return (
     <>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      <div className="page-header" style={{ marginBottom: 20 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/devices')}>
           Устройства
         </Button>
@@ -637,6 +652,7 @@ export default function DeviceCardPage() {
           {device.inventory_number} — {device.manufacturer} {device.model}
         </Typography.Title>
         <Tag color={statusCfg.color}>{statusCfg.label}</Tag>
+        <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать QR</Button>
       </div>
 
       {/* Device info */}

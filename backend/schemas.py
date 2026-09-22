@@ -229,6 +229,23 @@ class WarehouseItemCreate(BaseModel):
     sku: Optional[str] = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(min_length=1, max_length=100)
+    branch_id: int
+    department_id: Optional[int] = None
+    tracking_type: str = Field(default="quantity", pattern="^(quantity|asset)$")
+    inventory_number: Optional[str] = Field(default=None, max_length=100)
+    serial_number: Optional[str] = Field(default=None, max_length=100)
+    manufacturer: Optional[str] = Field(default=None, max_length=255)
+    model: Optional[str] = Field(default=None, max_length=255)
+    placement: str = Field(default="Склад/серверная", min_length=1, max_length=100)
+    condition: str = Field(default="На складе", min_length=1, max_length=50)
+    compatible_printers: Optional[str] = None
+    monitor_diagonal: Optional[float] = Field(default=None, gt=0)
+    color: Optional[str] = Field(default=None, max_length=50)
+    ram_gb: Optional[int] = Field(default=None, ge=0)
+    processor: Optional[str] = Field(default=None, max_length=255)
+    graphics: Optional[str] = Field(default=None, max_length=255)
+    storage_type: Optional[str] = Field(default=None, max_length=50)
+    storage_capacity_gb: Optional[int] = Field(default=None, ge=0)
     unit: str = Field(default="шт.", min_length=1, max_length=30)
     min_quantity: int = Field(default=0, ge=0)
     initial_quantity: int = Field(default=0, ge=0)
@@ -239,6 +256,23 @@ class WarehouseItemUpdate(BaseModel):
     sku: Optional[str] = Field(default=None, max_length=100)
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     category: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    tracking_type: Optional[str] = Field(default=None, pattern="^(quantity|asset)$")
+    inventory_number: Optional[str] = Field(default=None, max_length=100)
+    serial_number: Optional[str] = Field(default=None, max_length=100)
+    manufacturer: Optional[str] = Field(default=None, max_length=255)
+    model: Optional[str] = Field(default=None, max_length=255)
+    placement: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    condition: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    compatible_printers: Optional[str] = None
+    monitor_diagonal: Optional[float] = Field(default=None, gt=0)
+    color: Optional[str] = Field(default=None, max_length=50)
+    ram_gb: Optional[int] = Field(default=None, ge=0)
+    processor: Optional[str] = Field(default=None, max_length=255)
+    graphics: Optional[str] = Field(default=None, max_length=255)
+    storage_type: Optional[str] = Field(default=None, max_length=50)
+    storage_capacity_gb: Optional[int] = Field(default=None, ge=0)
     unit: Optional[str] = Field(default=None, min_length=1, max_length=30)
     min_quantity: Optional[int] = Field(default=None, ge=0)
     notes: Optional[str] = None
@@ -251,6 +285,25 @@ class WarehouseItemRead(BaseModel):
     sku: Optional[str] = None
     name: str
     category: str
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    branch: Optional[BranchRead] = None
+    department: Optional[DepartmentRead] = None
+    tracking_type: str
+    inventory_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    model: Optional[str] = None
+    placement: str
+    condition: str
+    compatible_printers: Optional[str] = None
+    monitor_diagonal: Optional[float] = None
+    color: Optional[str] = None
+    ram_gb: Optional[int] = None
+    processor: Optional[str] = None
+    graphics: Optional[str] = None
+    storage_type: Optional[str] = None
+    storage_capacity_gb: Optional[int] = None
     unit: str
     min_quantity: int
     current_quantity: int

@@ -1,12 +1,16 @@
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom'
-import { Layout, Menu, Button, Space, Typography } from 'antd'
+import { Layout, Menu, Button, Drawer, Grid, Space, Typography } from 'antd'
 import {
   PrinterOutlined,
   BarChartOutlined,
   SettingOutlined,
   LogoutOutlined,
   InboxOutlined,
+  QrcodeOutlined,
+  MenuOutlined,
 } from '@ant-design/icons'
+import './styles.css'
 
 import DevicesPage from './pages/Devices/DevicesPage'
 import DeviceCardPage from './pages/Devices/DeviceCardPage'
@@ -14,6 +18,8 @@ import AnalyticsPage from './pages/Analytics/AnalyticsPage'
 import SettingsPage from './pages/Settings/SettingsPage'
 import LoginPage from './pages/Login/LoginPage'
 import WarehousePage from './pages/Warehouse/WarehousePage'
+import WarehouseItemPage from './pages/Warehouse/WarehouseItemPage'
+import QrScannerModal from './components/QrScannerModal'
 
 const { Header, Sider, Content } = Layout
 
@@ -29,7 +35,11 @@ function getUsername() {
 }
 
 function PrivateRoute({ children }) {
-  return localStorage.getItem('token') ? children : <Navigate to="/login" replace />
+  const location = useLocation()
+  const next = `${location.pathname}${location.search}`
+  return localStorage.getItem('token')
+    ? children
+    : <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
 }
 
 const menuItems = [
@@ -42,6 +52,10 @@ const menuItems = [
 function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const screens = Grid.useBreakpoint()
+  const isMobile = !screens.lg
 
   const logout = () => {
     localStorage.removeItem('token')
@@ -52,7 +66,7 @@ function AppLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider breakpoint="lg" collapsedWidth="0">
+      {!isMobile && <Sider>
         <div style={{ color: '#fff', padding: '16px', fontWeight: 'bold', fontSize: 16 }}>
           Printer Dashboard
         </div>
@@ -62,34 +76,54 @@ function AppLayout() {
           selectedKeys={[selectedKey]}
           items={menuItems}
         />
-      </Sider>
+      </Sider>}
       <Layout>
-        <Header style={{
-          background: '#fff',
-          padding: '0 24px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <Typography.Text strong style={{ fontSize: 18 }}>
+        <Header className="app-header">
+          <Space size={8}>
+            {isMobile && <Button icon={<MenuOutlined />} onClick={() => setMenuOpen(true)} aria-label="Открыть меню" />}
+            <Typography.Text strong className="app-title">
             Учёт печатающей техники
-          </Typography.Text>
+            </Typography.Text>
+          </Space>
           <Space>
-            <Typography.Text>{getUsername()}</Typography.Text>
-            <Button icon={<LogoutOutlined />} onClick={logout}>Выйти</Button>
+            <Button icon={<QrcodeOutlined />} onClick={() => setScannerOpen(true)} aria-label="Сканировать QR" title="Сканировать QR">
+              <span className="desktop-only">Сканировать QR</span>
+            </Button>
+            <Typography.Text className="desktop-only">{getUsername()}</Typography.Text>
+            <Button icon={<LogoutOutlined />} onClick={logout} aria-label="Выйти" title="Выйти">
+              <span className="desktop-only">Выйти</span>
+            </Button>
           </Space>
         </Header>
-        <Content style={{ margin: '24px', background: '#fff', padding: 24, borderRadius: 8 }}>
+        <Content className="app-content">
           <Routes>
             <Route path="/" element={<Navigate to="/devices" replace />} />
             <Route path="/devices" element={<PrivateRoute><DevicesPage /></PrivateRoute>} />
             <Route path="/devices/:id" element={<PrivateRoute><DeviceCardPage /></PrivateRoute>} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/warehouse" element={<PrivateRoute><WarehousePage /></PrivateRoute>} />
+            <Route path="/warehouse/items/:id" element={<PrivateRoute><WarehouseItemPage /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
           </Routes>
         </Content>
       </Layout>
+      <Drawer
+        title="Printer Dashboard"
+        placement="left"
+        width={280}
+        open={isMobile && menuOpen}
+        onClose={() => setMenuOpen(false)}
+        styles={{ body: { padding: 0, background: '#001529' } }}
+      >
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          items={menuItems}
+          onClick={() => setMenuOpen(false)}
+        />
+      </Drawer>
+      <QrScannerModal open={scannerOpen} onClose={() => setScannerOpen(false)} />
     </Layout>
   )
 }

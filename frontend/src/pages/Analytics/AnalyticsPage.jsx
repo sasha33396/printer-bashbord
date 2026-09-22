@@ -264,7 +264,7 @@ export default function AnalyticsPage() {
 
       {/* Filters */}
       <Card style={{ marginBottom: 20 }}>
-        <Space wrap size={12}>
+        <Space wrap size={12} className="filter-space" style={{ width: '100%' }}>
           <RangePicker
             value={rangeValue}
             onChange={setRangeValue}
@@ -358,6 +358,7 @@ export default function AnalyticsPage() {
           columns={COLUMNS}
           loading={loadingCost}
           size="small"
+          scroll={{ x: 'max-content' }}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
