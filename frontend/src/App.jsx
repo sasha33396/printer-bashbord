@@ -9,6 +9,7 @@ import {
   InboxOutlined,
   QrcodeOutlined,
   MenuOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons'
 import './styles.css'
 
@@ -20,6 +21,8 @@ import LoginPage from './pages/Login/LoginPage'
 import WarehousePage from './pages/Warehouse/WarehousePage'
 import WarehouseItemPage from './pages/Warehouse/WarehouseItemPage'
 import QrScannerModal from './components/QrScannerModal'
+import WorkplacesPage from './pages/Workplaces/WorkplacesPage'
+import WorkplaceCardPage from './pages/Workplaces/WorkplaceCardPage'
 
 const { Header, Sider, Content } = Layout
 
@@ -45,6 +48,7 @@ function PrivateRoute({ children }) {
 const menuItems = [
   { key: '/devices',   icon: <PrinterOutlined />,  label: <Link to="/devices">Устройства</Link> },
   { key: '/warehouse', icon: <InboxOutlined />,    label: <Link to="/warehouse">Склад</Link> },
+  { key: '/workplaces', icon: <DesktopOutlined />, label: <Link to="/workplaces">Рабочие места</Link> },
   { key: '/analytics', icon: <BarChartOutlined />,  label: <Link to="/analytics">Аналитика</Link> },
   { key: '/settings',  icon: <SettingOutlined />,   label: <Link to="/settings">Справочники</Link> },
 ]
@@ -103,6 +107,8 @@ function AppLayout() {
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/warehouse" element={<PrivateRoute><WarehousePage /></PrivateRoute>} />
             <Route path="/warehouse/items/:id" element={<PrivateRoute><WarehouseItemPage /></PrivateRoute>} />
+            <Route path="/workplaces" element={<PrivateRoute><WorkplacesPage /></PrivateRoute>} />
+            <Route path="/workplaces/:id" element={<PrivateRoute><WorkplaceCardPage /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
           </Routes>
         </Content>

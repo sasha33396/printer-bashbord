@@ -56,7 +56,7 @@ export async function printQrLabel({ path, inventoryNumber, title, subtitle }) {
 export function qrTargetPath(value) {
   try {
     const url = new URL(value, window.location.origin)
-    const match = url.pathname.match(/^\/(devices\/\d+|warehouse\/items\/\d+)\/?$/)
+    const match = url.pathname.match(/^\/(devices\/\d+|warehouse\/items\/\d+|workplaces\/\d+)\/?$/)
     return match ? `/${match[1]}` : null
   } catch {
     return null

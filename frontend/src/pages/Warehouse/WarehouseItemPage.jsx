@@ -11,6 +11,7 @@ const CATEGORY_LABELS = {
   'Картриджи': 'Картридж',
   'Мыши': 'Мышь',
   'Клавиатуры': 'Клавиатура',
+  'Телефоны': 'Телефон',
 }
 
 function DetailField({ label, value, wide = false }) {

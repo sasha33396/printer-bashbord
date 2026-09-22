@@ -1,6 +1,6 @@
 import enum
 from sqlalchemy import (
-    Column, Integer, String, Float, Date, Text,
+    Boolean, Column, Integer, String, Float, Date, Text,
     ForeignKey, UniqueConstraint, Enum as SAEnum,
 )
 from sqlalchemy.orm import relationship
@@ -44,6 +44,12 @@ class ItemType(str, enum.Enum):
 class StockMovementType(str, enum.Enum):
     receipt = "receipt"
     issue = "issue"
+
+
+class WorkplaceStatus(str, enum.Enum):
+    occupied = "occupied"
+    vacant = "vacant"
+    inactive = "inactive"
 
 
 class Manufacturer(Base):
@@ -180,3 +186,58 @@ class StockMovement(Base):
     notes = Column(Text)
 
     item = relationship("WarehouseItem", back_populates="movements")
+
+
+class Employee(Base):
+    __tablename__ = "employees"
+
+    id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String(255), nullable=False, index=True)
+    position = Column(String(255), nullable=True)
+    branch_id = Column(Integer, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
+    phone = Column(String(100), nullable=True)
+    email = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    notes = Column(Text, nullable=True)
+
+    branch = relationship("Branch")
+    department = relationship("Department")
+
+
+class Workplace(Base):
+    __tablename__ = "workplaces"
+    __table_args__ = (UniqueConstraint("branch_id", "name", name="uq_workplace_branch_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
+    location = Column(String(255), nullable=True)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True)
+    status = Column(SAEnum(WorkplaceStatus), nullable=False, default=WorkplaceStatus.vacant)
+    notes = Column(Text, nullable=True)
+
+    branch = relationship("Branch")
+    department = relationship("Department")
+    employee = relationship("Employee")
+    assignments = relationship(
+        "WorkplaceAssetAssignment",
+        back_populates="workplace",
+        cascade="all, delete-orphan",
+        order_by="WorkplaceAssetAssignment.assigned_at.desc()",
+    )
+
+
+class WorkplaceAssetAssignment(Base):
+    __tablename__ = "workplace_asset_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workplace_id = Column(Integer, ForeignKey("workplaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("warehouse_items.id", ondelete="RESTRICT"), nullable=False, index=True)
+    assigned_at = Column(Date, nullable=False)
+    ended_at = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    workplace = relationship("Workplace", back_populates="assignments")
+    item = relationship("WarehouseItem")

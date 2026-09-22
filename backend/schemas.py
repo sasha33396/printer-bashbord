@@ -1,10 +1,11 @@
 from datetime import date as Date
-from typing import Annotated, Optional
+from typing import Annotated, List, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from network import normalize_ip_address
 from models import (
     DeviceType, DeviceStatus, RepairType, RepairStatus, ItemType, StockMovementType,
+    WorkplaceStatus,
 )
 
 IPAddress = Annotated[Optional[str], BeforeValidator(normalize_ip_address)]
@@ -326,6 +327,126 @@ class StockMovementRead(BaseModel):
     movement_type: StockMovementType
     quantity: int
     notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Employees
+# ---------------------------------------------------------------------------
+
+class EmployeeCreate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    position: Optional[str] = Field(default=None, max_length=255)
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    phone: Optional[str] = Field(default=None, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=255)
+    is_active: bool = True
+    notes: Optional[str] = None
+
+
+class EmployeeUpdate(BaseModel):
+    full_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    position: Optional[str] = Field(default=None, max_length=255)
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    phone: Optional[str] = Field(default=None, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=255)
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class EmployeeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    full_name: str
+    position: Optional[str] = None
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    branch: Optional[BranchRead] = None
+    department: Optional[DepartmentRead] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    is_active: bool
+    notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Workplaces
+# ---------------------------------------------------------------------------
+
+class WorkplaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    branch_id: int
+    department_id: Optional[int] = None
+    location: Optional[str] = Field(default=None, max_length=255)
+    employee_id: Optional[int] = None
+    status: WorkplaceStatus = WorkplaceStatus.vacant
+    notes: Optional[str] = None
+
+
+class WorkplaceUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    location: Optional[str] = Field(default=None, max_length=255)
+    employee_id: Optional[int] = None
+    status: Optional[WorkplaceStatus] = None
+    notes: Optional[str] = None
+
+
+class WorkplaceAssetBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    category: str
+    inventory_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    model: Optional[str] = None
+    condition: str
+
+
+class WorkplaceAssignmentCreate(BaseModel):
+    item_id: int
+    assigned_at: Date
+    notes: Optional[str] = None
+
+
+class WorkplaceAssignmentEnd(BaseModel):
+    ended_at: Date
+    notes: Optional[str] = None
+
+
+class WorkplaceAssignmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workplace_id: int
+    item_id: int
+    assigned_at: Date
+    ended_at: Optional[Date] = None
+    notes: Optional[str] = None
+    item: WorkplaceAssetBrief
+
+
+class WorkplaceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    employee_id: Optional[int] = None
+    branch: Optional[BranchRead] = None
+    department: Optional[DepartmentRead] = None
+    employee: Optional[EmployeeRead] = None
+    location: Optional[str] = None
+    status: WorkplaceStatus
+    notes: Optional[str] = None
+    current_assets: List[WorkplaceAssignmentRead] = Field(default_factory=list)
+    assignment_history: List[WorkplaceAssignmentRead] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

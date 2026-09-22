@@ -12,8 +12,8 @@ import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
 import { printQrLabel } from '../../utils/qr'
 
-const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Принтеры']
-const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры'])
+const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Телефоны', 'Принтеры']
+const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры', 'Телефоны'])
 const PLACEMENTS = ['Склад/серверная', 'Ремонт/заправка', 'Рабочее место']
 const CONDITIONS = ['На складе', 'Рабочий', 'В ремонте', 'Требует ремонта', 'Списан']
 

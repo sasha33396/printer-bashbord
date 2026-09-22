@@ -2,7 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import initialize_database
-from routers import auth, orgs, devices, repairs, consumables, analytics, manufacturers, warehouse
+from routers import (
+    analytics, auth, consumables, devices, employees, manufacturers,
+    orgs, repairs, warehouse, workplaces,
+)
 
 initialize_database()
 
@@ -24,6 +27,8 @@ app.include_router(consumables.router, prefix="/api/consumables", tags=["consuma
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(manufacturers.router, prefix="/api/manufacturers", tags=["manufacturers"])
 app.include_router(warehouse.router, prefix="/api/warehouse", tags=["warehouse"])
+app.include_router(employees.router, prefix="/api/employees", tags=["employees"])
+app.include_router(workplaces.router, prefix="/api/workplaces", tags=["workplaces"])
 
 
 @app.get("/api/health")
