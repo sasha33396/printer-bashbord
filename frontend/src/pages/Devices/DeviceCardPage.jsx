@@ -258,6 +258,7 @@ export default function DeviceCardPage() {
   const [consumables, setConsumables] = useState([])
 
   const [deviceLoading,      setDeviceLoading]      = useState(true)
+  const [counterLoading, setCounterLoading] = useState(false)
   const [repairsLoading,     setRepairsLoading]     = useState(false)
   const [consumablesLoading, setConsumablesLoading] = useState(false)
 
@@ -312,6 +313,19 @@ export default function DeviceCardPage() {
   }, [loadDevice, loadRepairs, loadConsumables])
 
   // ---- Handlers ----
+
+  const refreshCounter = async () => {
+    setCounterLoading(true)
+    try {
+      const { data } = await api.post(`/devices/${id}/counter`)
+      setDevice((current) => current?.id === data.id ? data : current)
+      message.success('Счётчик обновлён')
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Не удалось получить счётчик')
+    } finally {
+      setCounterLoading(false)
+    }
+  }
 
   const handleDeleteRepair = async (repairId) => {
     try {
@@ -509,9 +523,30 @@ export default function DeviceCardPage() {
 
       {/* Device info */}
       <Card style={{ marginBottom: 20 }}>
+        <Space wrap size="large">
+          <Statistic title="Общий счётчик (печать и копирование)" value={device.page_counter ?? '—'} />
+          <Space direction="vertical">
+            <Button onClick={refreshCounter} loading={counterLoading} disabled={!device.ip_address}>
+              Обновить счётчик
+            </Button>
+            <Typography.Text type="secondary">
+              {device.ip_address ? `Опрос ${device.ip_address}` : 'Укажите IP-адрес в настройках устройства'}
+            </Typography.Text>
+            <Typography.Text type="secondary">
+              {device.counter_checked_at
+                ? `Получен: ${dayjs(device.counter_checked_at).format('DD.MM.YYYY HH:mm:ss')}`
+                : 'Счётчик ещё не получен'}
+            </Typography.Text>
+          </Space>
+        </Space>
+      </Card>
+      <Card style={{ marginBottom: 20 }}>
         <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small">
           <Descriptions.Item label="Тип">
             {TYPE_LABELS[device.device_type] ?? device.device_type}
+          </Descriptions.Item>
+          <Descriptions.Item label="IP-адрес">
+            {device.ip_address || <Typography.Text type="secondary">—</Typography.Text>}
           </Descriptions.Item>
           <Descriptions.Item label="Серийный №">
             {device.serial_number || <Typography.Text type="secondary">—</Typography.Text>}

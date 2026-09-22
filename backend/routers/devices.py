@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 import openpyxl
@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
+from network import normalize_ip_address
+from printer_counter import read_counter
 from models import Branch, Department, Device, DeviceType, DeviceStatus
 from routers.auth import get_current_user
 from schemas import DeviceCreate, DeviceUpdate, DeviceRead
@@ -195,6 +197,7 @@ def import_devices(
     # 5 Филиал     6 Отдел           7 Кабинет         8 Дата покупки
     # 9 Гарантия до  10 Статус       11 Примечание
     data_rows = rows[1:]  # пропускаем заголовок
+    ip_column = actual.index("ip-адрес") if "ip-адрес" in actual else None
 
     created = 0
     skipped = 0
@@ -275,7 +278,15 @@ def import_devices(
                         )
                 department_id = dept_cache[key]
 
+        try:
+            ip_value = normalize_ip_address(_cell(row, ip_column)) if ip_column is not None else None
+        except ValueError as exc:
+            errors.append(f"Строка {row_num}: {exc}")
+            skipped += 1
+            continue
+
         device = Device(
+            ip_address=ip_value,
             inventory_number=inv,
             serial_number=_cell(row, 1),
             manufacturer=manufacturer,
@@ -317,6 +328,9 @@ def update_device(
 ):
     device = _get_or_404(db, device_id)
     data = payload.model_dump(exclude_unset=True)
+    if "ip_address" in data and data["ip_address"] != device.ip_address:
+        device.page_counter = None
+        device.counter_checked_at = None
     if "inventory_number" in data and data["inventory_number"] != device.inventory_number:
         if db.query(Device.id).filter(Device.inventory_number == data["inventory_number"]).scalar():
             raise HTTPException(
@@ -325,6 +339,37 @@ def update_device(
             )
     for field, value in data.items():
         setattr(device, field, value)
+    db.commit()
+    return _load_with_relations(db).filter(Device.id == device_id).first()
+
+
+@router.post("/{device_id}/counter", response_model=DeviceRead)
+def refresh_counter(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    address = device.ip_address
+    if not address:
+        raise HTTPException(status_code=422, detail="Сначала укажите IP-адрес устройства")
+    try:
+        counter = read_counter(address)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось прочитать счётчик. Проверьте доступность принтера и поддержку веб-интерфейса Kyocera.",
+        ) from exc
+    # Do not save a reading if the address was edited during the request.
+    updated = db.query(Device).filter(Device.id == device_id, Device.ip_address == address).update({
+        Device.page_counter: counter,
+        Device.counter_checked_at: datetime.now(timezone.utc).isoformat(),
+    }, synchronize_session=False)
+    if not updated:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Устройство изменилось. Обновите страницу и повторите опрос.")
     db.commit()
     return _load_with_relations(db).filter(Device.id == device_id).first()
 

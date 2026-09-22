@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import Base, engine
+from database import initialize_database
 from routers import auth, orgs, devices, repairs, consumables, analytics, manufacturers
 
-Base.metadata.create_all(bind=engine)
+initialize_database()
 
 app = FastAPI(title="Printer Dashboard API", version="1.0.0")
 

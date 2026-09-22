@@ -1,8 +1,11 @@
 from datetime import date
-from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from typing import Annotated, Optional
+from pydantic import BaseModel, BeforeValidator, ConfigDict
 
+from network import normalize_ip_address
 from models import DeviceType, DeviceStatus, RepairType, ItemType
+
+IPAddress = Annotated[Optional[str], BeforeValidator(normalize_ip_address)]
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +73,7 @@ class DepartmentRead(BaseModel):
 # ---------------------------------------------------------------------------
 
 class DeviceCreate(BaseModel):
+    ip_address: IPAddress = None
     inventory_number: str
     serial_number: Optional[str] = None
     manufacturer: str
@@ -84,6 +88,7 @@ class DeviceCreate(BaseModel):
 
 
 class DeviceUpdate(BaseModel):
+    ip_address: IPAddress = None
     inventory_number: Optional[str] = None
     serial_number: Optional[str] = None
     manufacturer: Optional[str] = None
@@ -98,6 +103,9 @@ class DeviceUpdate(BaseModel):
 
 
 class DeviceRead(BaseModel):
+    ip_address: IPAddress = None
+    page_counter: Optional[int] = None
+    counter_checked_at: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -13,6 +13,20 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
+
+def initialize_database():
+    Base.metadata.create_all(bind=engine)
+    # create_all does not add columns to existing installations.
+    with engine.begin() as connection:
+        columns = {column["name"] for column in inspect(connection).get_columns("devices")}
+        for name, sql_type in (
+            ("ip_address", "VARCHAR(45)"),
+            ("page_counter", "INTEGER"),
+            ("counter_checked_at", "VARCHAR(40)"),
+        ):
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE devices ADD COLUMN {name} {sql_type}"))
 
 
 def get_db():

@@ -35,6 +35,7 @@ const STATUS_OPTIONS = Object.entries(STATUS_CONFIG).map(([v, c]) => ({ value: v
 const TEMPLATE_COLS = [
   'Инв.номер', 'Серийный номер', 'Производитель', 'Модель', 'Тип',
   'Филиал', 'Отдел', 'Кабинет', 'Дата покупки', 'Гарантия до', 'Статус', 'Примечание',
+  'IP-адрес',
 ]
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,7 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
     const raw = await form.validateFields()
     const payload = {
       ...raw,
+      ip_address: raw.ip_address?.trim() || null,
       purchase_date:  fromDayjs(raw.purchase_date),
       warranty_until: fromDayjs(raw.warranty_until),
     }
@@ -113,7 +115,7 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
       onSaved()
     } catch (err) {
       const detail = err.response?.data?.detail
-      message.error(typeof detail === 'string' ? detail : 'Ошибка сохранения')
+      message.error(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((e) => e.msg).join('; ') : 'Ошибка сохранения')
     } finally {
       setSaving(false)
     }
@@ -265,6 +267,11 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
             </Form.Item>
           </Col>
 
+          <Col span={12}>
+            <Form.Item name="ip_address" label="IP-адрес">
+              <Input placeholder="Например: 192.168.1.100" allowClear />
+            </Form.Item>
+          </Col>
           <Col span={24}>
             <Form.Item name="notes" label="Примечание">
               <Input.TextArea rows={2} />
@@ -374,6 +381,13 @@ export default function DevicesPage() {
   // ---- Columns ----
 
   const columns = [
+    {
+      title: 'IP-адрес',
+      dataIndex: 'ip_address',
+      key: 'ip_address',
+      width: 160,
+      render: (v) => v || <Typography.Text type="secondary">—</Typography.Text>,
+    },
     {
       title: 'Инв.№',
       dataIndex: 'inventory_number',
