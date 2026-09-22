@@ -8,13 +8,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/icons": "^5.3.7",
+    "antd": "^5.17.3",
+    "axios": "^1.7.2",
+    "dayjs": "^1.11.11",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.23.1",
-    "antd": "^5.17.3",
-    "@ant-design/icons": "^5.3.7",
-    "axios": "^1.7.2",
-    "dayjs": "^1.11.11",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

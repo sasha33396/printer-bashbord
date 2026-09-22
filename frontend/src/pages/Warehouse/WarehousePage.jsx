@@ -1,17 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  AutoComplete, Button, Col, DatePicker, Form, Input, InputNumber,
+  AutoComplete, Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber,
   Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, message,
 } from 'antd'
 import {
-  DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined, PlusOutlined,
+  ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
+  PlusOutlined, QrcodeOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
+import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
+import { printQrLabel } from '../../utils/qr'
+
+const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Принтеры']
+const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры'])
+const PLACEMENTS = ['Склад/серверная', 'Ремонт/заправка', 'Рабочее место']
+const CONDITIONS = ['На складе', 'Рабочий', 'В ремонте', 'Требует ремонта', 'Списан']
+
+const DEVICE_TYPE_LABELS = {
+  printer: 'Принтер', mfc: 'МФУ', plotter: 'Плоттер', scanner: 'Сканер',
+}
+const DEVICE_STATUS_LABELS = {
+  active: 'Рабочий', repair: 'В ремонте', decommissioned: 'Списан',
+}
 
 const MOVEMENT_CONFIG = {
   receipt: { label: 'Поступление', color: 'green', sign: '+' },
-  issue:   { label: 'Выдача',      color: 'red',   sign: '−' },
+  issue:   { label: 'Отправить / выдать', color: 'red', sign: '−' },
 }
 
 const apiErrorMessage = (err, fallback) => {
@@ -23,10 +38,12 @@ const apiErrorMessage = (err, fallback) => {
   return fallback
 }
 
-function ItemModal({ open, editing, categories, branches, departments, onClose, onSaved }) {
+function ItemModal({ open, editing, initialCategory, categories, branches, departments, onClose, onSaved }) {
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
   const selectedBranch = Form.useWatch('branch_id', form)
+  const selectedCategory = Form.useWatch('category', form)
+  const trackingType = Form.useWatch('tracking_type', form)
   const availableDepartments = departments.filter((item) => item.branch_id === selectedBranch)
 
   useEffect(() => {
@@ -35,9 +52,14 @@ function ItemModal({ open, editing, categories, branches, departments, onClose, 
     if (editing) {
       form.setFieldsValue(editing)
     } else {
-      form.setFieldsValue({ unit: 'шт.', min_quantity: 0, initial_quantity: 0 })
+      form.setFieldsValue({
+        unit: 'шт.', min_quantity: 0, initial_quantity: 0,
+        tracking_type: 'quantity', placement: 'Склад/серверная', condition: 'На складе',
+        category: initialCategory && initialCategory !== 'Принтеры' ? initialCategory : undefined,
+      })
+      if (ASSET_CATEGORIES.has(initialCategory)) form.setFieldValue('tracking_type', 'asset')
     }
-  }, [open, editing, form])
+  }, [open, editing, initialCategory, form])
 
   const handleSave = async () => {
     const values = await form.validateFields()
@@ -67,7 +89,7 @@ function ItemModal({ open, editing, categories, branches, departments, onClose, 
       confirmLoading={saving}
       okText="Сохранить"
       cancelText="Отмена"
-      width={620}
+      width={820}
       destroyOnClose
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
@@ -85,9 +107,13 @@ function ItemModal({ open, editing, categories, branches, departments, onClose, 
           <Col span={12}>
             <Form.Item name="category" label="Категория" rules={[{ required: true, message: 'Укажите категорию' }]}>
               <AutoComplete
-                options={categories.map((value) => ({ value }))}
+                options={[...new Set([...DEFAULT_CATEGORIES.filter((value) => value !== 'Принтеры'), ...categories])]
+                  .map((value) => ({ value }))}
                 placeholder="Картриджи, компьютеры…"
                 filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())}
+                onChange={(value) => {
+                  if (!editing) form.setFieldValue('tracking_type', ASSET_CATEGORIES.has(value) ? 'asset' : 'quantity')
+                }}
               />
             </Form.Item>
           </Col>
@@ -102,6 +128,58 @@ function ItemModal({ open, editing, categories, branches, departments, onClose, 
               />
             </Form.Item>
           </Col>
+          <Col span={12}>
+            <Form.Item name="tracking_type" label="Способ учёта" rules={[{ required: true }]}>
+              <Select options={[
+                { value: 'quantity', label: 'По количеству' },
+                { value: 'asset', label: 'Поштучно, с инвентарным номером' },
+              ]} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="placement" label="Местонахождение" rules={[{ required: true }]}>
+              <Select options={PLACEMENTS.map((value) => ({ value, label: value }))} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="condition" label="Состояние" rules={[{ required: true }]}>
+              <Select options={CONDITIONS.map((value) => ({ value, label: value }))} />
+            </Form.Item>
+          </Col>
+          {trackingType === 'asset' && <>
+            <Col span={12}>
+              <Form.Item name="inventory_number" label="Инвентарный №" rules={[{ required: true, message: 'Укажите инвентарный номер' }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="serial_number" label="Серийный №"><Input /></Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="manufacturer" label="Производитель"><Input /></Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="model" label="Модель"><Input /></Form.Item>
+            </Col>
+          </>}
+          {selectedCategory === 'Картриджи' && (
+            <Col span={24}>
+              <Form.Item name="compatible_printers" label="Для каких принтеров">
+                <Input placeholder="Например: Kyocera ECOSYS M2040dn" />
+              </Form.Item>
+            </Col>
+          )}
+          {selectedCategory === 'Мониторы' && <>
+            <Col span={12}><Form.Item name="monitor_diagonal" label="Диагональ, дюймы"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="color" label="Цвет"><Input /></Form.Item></Col>
+          </>}
+          {selectedCategory === 'Компьютеры' && <>
+            <Col span={8}><Form.Item name="ram_gb" label="ОЗУ, ГБ"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={16}><Form.Item name="processor" label="Процессор"><Input /></Form.Item></Col>
+            <Col span={24}><Form.Item name="graphics" label="Видеокарта"><Input /></Form.Item></Col>
+            <Col span={12}><Form.Item name="storage_type" label="Накопитель"><Select allowClear options={['SSD', 'HDD', 'HDD/SSD'].map((value) => ({ value }))} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="storage_capacity_gb" label="Объём, ГБ"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+          </>}
           <Col span={12}>
             <Form.Item name="department_id" label="Отдел">
               <Select
@@ -124,7 +202,7 @@ function ItemModal({ open, editing, categories, branches, departments, onClose, 
               <InputNumber min={0} precision={0} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
-          {!editing && (
+          {!editing && trackingType !== 'asset' && (
             <Col span={12}>
               <Form.Item name="initial_quantity" label="Начальный остаток" rules={[{ required: true }]}>
                 <InputNumber min={0} precision={0} style={{ width: '100%' }} />
@@ -288,7 +366,10 @@ function HistoryModal({ item, open, onClose, onChanged }) {
 }
 
 export default function WarehousePage() {
+  const navigate = useNavigate()
   const [items, setItems] = useState([])
+  const [devices, setDevices] = useState([])
+  const [repairs, setRepairs] = useState([])
   const [branches, setBranches] = useState([])
   const [departments, setDepartments] = useState([])
   const [loading, setLoading] = useState(false)
@@ -304,22 +385,22 @@ export default function WarehousePage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const response = await api.get('/warehouse/items')
-      setItems(response.data)
+      const [itemResponse, deviceResponse, repairResponse] = await Promise.all([
+        api.get('/warehouse/items'), api.get('/devices'), api.get('/repairs'),
+      ])
+      setItems(itemResponse.data)
+      setDevices(deviceResponse.data)
+      setRepairs(repairResponse.data)
     } catch (err) {
-      message.error(apiErrorMessage(err, 'Не удалось загрузить склад'))
+      message.error(apiErrorMessage(err, 'Не удалось загрузить данные склада'))
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => { load() }, [load])
-
   useEffect(() => {
-    Promise.all([
-      api.get('/orgs/branches'),
-      api.get('/orgs/departments'),
-    ])
+    Promise.all([api.get('/orgs/branches'), api.get('/orgs/departments')])
       .then(([branchResponse, departmentResponse]) => {
         setBranches(branchResponse.data)
         setDepartments(departmentResponse.data)
@@ -327,23 +408,59 @@ export default function WarehousePage() {
       .catch((err) => message.error(apiErrorMessage(err, 'Не удалось загрузить филиалы и отделы')))
   }, [])
 
-  const categories = useMemo(
-    () => [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b)),
-    [items],
-  )
+  const categories = useMemo(() => [...new Set([
+    ...DEFAULT_CATEGORIES,
+    ...items.map((item) => item.category),
+  ])], [items])
 
-  const filtered = useMemo(() => {
+  const itemsAtLocation = useMemo(() => items.filter((item) => {
+    if (branchId && item.branch_id !== branchId) return false
+    if (departmentId && item.department_id !== departmentId) return false
+    return true
+  }), [items, branchId, departmentId])
+
+  const devicesAtLocation = useMemo(() => devices.filter((device) => {
+    if (branchId && device.department?.branch?.id !== branchId) return false
+    if (departmentId && device.department_id !== departmentId) return false
+    return true
+  }), [devices, branchId, departmentId])
+
+  const summary = useMemo(() => categories.map((name) => ({
+    category: name,
+    count: name === 'Принтеры'
+      ? devicesAtLocation.length
+      : itemsAtLocation
+        .filter((item) => item.category === name)
+        .reduce((total, item) => total + (item.tracking_type === 'asset' ? 1 : item.current_quantity), 0),
+  })), [categories, devicesAtLocation, itemsAtLocation])
+
+  const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return items.filter((item) => {
+    return itemsAtLocation.filter((item) => {
       if (category && item.category !== category) return false
-      if (branchId && item.branch_id !== branchId) return false
-      if (departmentId && item.department_id !== departmentId) return false
       if (!query) return true
-      return [item.name, item.sku, item.category, item.branch?.name, item.department?.name]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(query))
+      return [
+        item.name, item.sku, item.inventory_number, item.serial_number, item.manufacturer,
+        item.model, item.category, item.branch?.name, item.department?.name, item.placement,
+      ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
     })
-  }, [items, search, category, branchId, departmentId])
+  }, [itemsAtLocation, search, category])
+
+  const filteredDevices = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return devicesAtLocation.filter((device) => !query || [
+      device.inventory_number, device.serial_number, device.manufacturer, device.model,
+      device.department?.branch?.name, device.department?.name, device.location,
+    ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query)))
+  }, [devicesAtLocation, search])
+
+  const lastRepair = useMemo(() => {
+    const result = {}
+    repairs.forEach((repair) => {
+      if (!result[repair.device_id] || repair.date > result[repair.device_id]) result[repair.device_id] = repair.date
+    })
+    return result
+  }, [repairs])
 
   const filterDepartments = branchId
     ? departments.filter((item) => item.branch_id === branchId)
@@ -359,88 +476,142 @@ export default function WarehousePage() {
     }
   }
 
-  const columns = [
-    {
-      title: 'Склад', key: 'warehouse', width: 210,
-      render: (_, row) => {
-        if (!row.branch) return <Typography.Text type="secondary">Не указан</Typography.Text>
-        return row.department ? `${row.branch.name} / ${row.department.name}` : row.branch.name
-      },
-    },
-    { title: 'Категория', dataIndex: 'category', width: 150 },
+  const printItem = async (item) => {
+    try {
+      await printQrLabel({
+        path: `/warehouse/items/${item.id}`,
+        inventoryNumber: item.inventory_number || item.sku,
+        title: item.branch?.name || 'Склад',
+        subtitle: [item.manufacturer, item.model || item.name].filter(Boolean).join(' '),
+      })
+    } catch (error) {
+      message.error(error.message || 'Не удалось сформировать этикетку')
+    }
+  }
+
+  const printDevice = async (device) => {
+    try {
+      await printQrLabel({
+        path: `/devices/${device.id}`,
+        inventoryNumber: device.inventory_number,
+        title: device.department?.branch?.name || 'Устройство',
+        subtitle: `${device.manufacturer} ${device.model}`,
+      })
+    } catch (error) {
+      message.error(error.message || 'Не удалось сформировать этикетку')
+    }
+  }
+
+  const locationColumn = {
+    title: 'Местонахождение', key: 'placement', width: 175,
+    render: (_, row) => row.placement || 'Склад/серверная',
+  }
+  const numberColumn = {
+    title: '№', key: 'number', width: 110,
+    render: (_, row) => row.inventory_number || row.sku || row.id,
+  }
+  const notesColumn = { title: 'Примечание', dataIndex: 'notes', ellipsis: true, render: (value) => value || '—' }
+  const stateColumn = {
+    title: 'Состояние', dataIndex: 'condition', width: 130,
+    render: (value) => <Tag color={value === 'Рабочий' || value === 'На складе' ? 'green' : value === 'Списан' ? 'red' : 'orange'}>{value}</Tag>,
+  }
+  const itemActions = {
+    title: '', key: 'actions', width: 280, fixed: 'right', align: 'right',
+    render: (_, row) => (
+      <Space size={4}>
+        {row.tracking_type === 'quantity' && <>
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setMovement({ item: row, type: 'receipt' })}>Приход</Button>
+          <Button size="small" icon={<MinusOutlined />} disabled={row.current_quantity <= 0} onClick={() => setMovement({ item: row, type: 'issue' })}>Отправить</Button>
+        </>}
+        <Button size="small" icon={<QrcodeOutlined />} title="Распечатать QR" onClick={() => printItem(row)} />
+        <Button size="small" icon={<HistoryOutlined />} title="История" onClick={() => setHistoryItem(row)} />
+        <Button size="small" icon={<EditOutlined />} title="Редактировать" onClick={() => { setEditing(row); setItemModal(true) }} />
+        <Popconfirm title="Удалить позицию?" onConfirm={() => removeItem(row.id)} okText="Удалить" cancelText="Отмена">
+          <Button size="small" icon={<DeleteOutlined />} danger />
+        </Popconfirm>
+      </Space>
+    ),
+  }
+
+  const genericColumns = [
+    locationColumn, numberColumn,
+    { title: 'Наименование', dataIndex: 'name', ellipsis: true, render: (text, row) => <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/warehouse/items/${row.id}`)}>{text}</Button> },
     { title: 'Артикул', dataIndex: 'sku', width: 120, render: (value) => value || '—' },
-    { title: 'Наименование', dataIndex: 'name', ellipsis: true },
     {
-      title: 'Остаток', key: 'current_quantity', width: 125, align: 'right',
-      sorter: (a, b) => a.current_quantity - b.current_quantity,
-      render: (_, row) => {
-        const low = row.current_quantity <= row.min_quantity
-        return <Tag color={low ? 'red' : 'green'}>{row.current_quantity} {row.unit}</Tag>
-      },
+      title: 'Количество', key: 'quantity', width: 125, align: 'right',
+      render: (_, row) => <Tag color={row.current_quantity <= row.min_quantity ? 'red' : 'green'}>{row.current_quantity} {row.unit}</Tag>,
     },
+    stateColumn, notesColumn, itemActions,
+  ]
+  const cartridgeColumns = [
+    locationColumn, numberColumn,
+    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    { title: 'Для принтеров', dataIndex: 'compatible_printers', render: (value) => value || '—' },
+    { title: 'Кол-во', dataIndex: 'current_quantity', width: 90, align: 'right' },
+    itemActions,
+  ]
+  const monitorColumns = [
+    locationColumn, numberColumn,
+    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    { title: 'Диагональ', dataIndex: 'monitor_diagonal', width: 100, render: (value) => value ? `${value}″` : '—' },
+    { title: 'Цвет', dataIndex: 'color', width: 100, render: (value) => value || '—' },
+    { title: 'S/N', dataIndex: 'serial_number', width: 140, render: (value) => value || '—' },
+    stateColumn, notesColumn, itemActions,
+  ]
+  const computerColumns = [
+    locationColumn, numberColumn,
+    { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
+    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    { title: 'ОЗУ', dataIndex: 'ram_gb', width: 75, render: (value) => value != null ? `${value} ГБ` : '—' },
+    { title: 'ЦП', dataIndex: 'processor', width: 160, render: (value) => value || '—' },
+    { title: 'ГПУ', dataIndex: 'graphics', width: 170, render: (value) => value || '—' },
+    { title: 'Накопитель', dataIndex: 'storage_type', width: 105, render: (value) => value || '—' },
+    { title: 'Объём', dataIndex: 'storage_capacity_gb', width: 90, render: (value) => value != null ? `${value} ГБ` : '—' },
+    stateColumn, notesColumn, itemActions,
+  ]
+  const printerColumns = [
     {
-      title: 'Мин. остаток', dataIndex: 'min_quantity', width: 125, align: 'right',
-      render: (value, row) => `${value} ${row.unit}`,
+      title: 'Местонахождение', key: 'location', width: 190,
+      render: (_, row) => [row.department?.name, row.location].filter(Boolean).join(' / ') || '—',
     },
+    { title: 'Инв. №', dataIndex: 'inventory_number', width: 120 },
+    { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
+    { title: 'Модель', key: 'model', render: (_, row) => `${row.manufacturer} ${row.model}` },
+    { title: 'Тип принтера', dataIndex: 'device_type', width: 125, render: (value) => DEVICE_TYPE_LABELS[value] || value },
+    { title: 'Счётчик', dataIndex: 'page_counter', width: 100, align: 'right', render: (value) => value ?? '—' },
+    { title: 'Последний ремонт', key: 'last_repair', width: 135, render: (_, row) => lastRepair[row.id] ? dayjs(lastRepair[row.id]).format('DD.MM.YYYY') : '—' },
+    { title: 'Состояние', dataIndex: 'status', width: 115, render: (value) => <Tag>{DEVICE_STATUS_LABELS[value] || value}</Tag> },
+    { title: 'Примечание', dataIndex: 'notes', ellipsis: true, render: (value) => value || '—' },
     {
-      title: '', key: 'actions', width: 300, align: 'right', fixed: 'right',
-      render: (_, row) => (
-        <Space size={4}>
-          <Button size="small" type="primary" icon={<PlusOutlined />}
-            onClick={() => setMovement({ item: row, type: 'receipt' })}>
-            Поступление
-          </Button>
-          <Button size="small" icon={<MinusOutlined />} disabled={row.current_quantity <= 0}
-            onClick={() => setMovement({ item: row, type: 'issue' })}>
-            Выдать
-          </Button>
-          <Button size="small" icon={<HistoryOutlined />} onClick={() => setHistoryItem(row)} />
-          <Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(row); setItemModal(true) }} />
-          <Popconfirm title="Удалить позицию?" onConfirm={() => removeItem(row.id)} okText="Удалить" cancelText="Отмена">
-            <Button size="small" icon={<DeleteOutlined />} danger />
-          </Popconfirm>
-        </Space>
-      ),
+      title: '', width: 120, fixed: 'right', align: 'right',
+      render: (_, row) => <Space size={4}>
+        <Button size="small" icon={<QrcodeOutlined />} title="Распечатать QR" onClick={() => printDevice(row)} />
+        <Button size="small" type="primary" onClick={() => navigate(`/devices/${row.id}`)}>Открыть</Button>
+      </Space>,
     },
   ]
 
+  const selectedColumns = category === 'Картриджи' ? cartridgeColumns
+    : category === 'Мониторы' ? monitorColumns
+      : category === 'Компьютеры' ? computerColumns
+        : genericColumns
+
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>Склад</Typography.Title>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+        <Typography.Title level={3} style={{ margin: 0 }}>Склад и оборудование</Typography.Title>
         <Input.Search
-          placeholder="Поиск по названию или артикулу"
-          allowClear
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          style={{ width: 280 }}
+          placeholder="Инвентарный №, модель, S/N"
+          allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }}
         />
         <Select
-          placeholder="Все категории"
-          allowClear
-          value={category}
-          onChange={setCategory}
-          options={categories.map((value) => ({ value, label: value }))}
-          style={{ width: 190 }}
-        />
-        <Select
-          placeholder="Все филиалы"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          value={branchId}
+          placeholder="Все филиалы" allowClear showSearch optionFilterProp="label" value={branchId}
           onChange={(value) => { setBranchId(value); setDepartmentId(undefined) }}
-          options={branches.map((item) => ({ value: item.id, label: item.name }))}
-          style={{ width: 190 }}
+          options={branches.map((item) => ({ value: item.id, label: item.name }))} style={{ width: 190 }}
         />
         <Select
-          placeholder="Все отделы"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          value={departmentId}
-          onChange={setDepartmentId}
-          options={filterDepartments.map((item) => ({ value: item.id, label: item.name }))}
+          placeholder="Все отделы" allowClear showSearch optionFilterProp="label" value={departmentId}
+          onChange={setDepartmentId} options={filterDepartments.map((item) => ({ value: item.id, label: item.name }))}
           style={{ width: 190 }}
         />
         <Button type="primary" icon={<PlusOutlined />} style={{ marginLeft: 'auto' }}
@@ -449,37 +620,66 @@ export default function WarehousePage() {
         </Button>
       </div>
 
-      <Table
-        rowKey="id"
-        dataSource={filtered}
-        columns={columns}
-        loading={loading}
-        size="small"
-        scroll={{ x: 'max-content' }}
-        pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (total) => `Позиций: ${total}` }}
-      />
+      <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+        {summary.map((row) => (
+          <Col xs={12} sm={8} lg={4} key={row.category}>
+            <Card
+              hoverable
+              size="small"
+              onClick={() => setCategory(row.category)}
+              style={{ borderColor: category === row.category ? '#1677ff' : undefined }}
+            >
+              <Typography.Text type="secondary">{row.category}</Typography.Text>
+              <Typography.Title level={3} style={{ margin: '4px 0 0' }}>{row.count}</Typography.Title>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+
+      {!category ? (
+        <Card title="Общий вид">
+          <Table
+            rowKey="category" loading={loading} pagination={false} size="small" dataSource={summary}
+            columns={[
+              { title: '№', width: 70, render: (_, __, index) => index + 1 },
+              { title: 'Категория', dataIndex: 'category' },
+              { title: 'Количество', dataIndex: 'count', width: 140, align: 'right' },
+            ]}
+            onRow={(row) => ({ onClick: () => setCategory(row.category), style: { cursor: 'pointer' } })}
+          />
+        </Card>
+      ) : (
+        <Card
+          title={<Space><Button size="small" icon={<ArrowLeftOutlined />} onClick={() => setCategory(undefined)}>Общий вид</Button><span>{category}</span></Space>}
+          extra={category !== 'Принтеры' && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>Добавить</Button>}
+        >
+          {(category === 'Принтеры' ? filteredDevices : filteredItems).length === 0 && !loading ? <Empty description="Нет записей" /> : (
+            <Table
+              rowKey="id"
+              dataSource={category === 'Принтеры' ? filteredDevices : filteredItems}
+              columns={category === 'Принтеры' ? printerColumns : selectedColumns}
+              loading={loading}
+              size="small"
+              scroll={{ x: 'max-content' }}
+              pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (total) => `Позиций: ${total}` }}
+            />
+          )}
+        </Card>
+      )}
 
       <ItemModal
-        open={itemModal}
-        editing={editing}
-        categories={categories}
-        branches={branches}
-        departments={departments}
-        onClose={() => setItemModal(false)}
-        onSaved={() => { setItemModal(false); load() }}
+        open={itemModal} editing={editing} initialCategory={category}
+        categories={categories.filter((value) => value !== 'Принтеры')}
+        branches={branches} departments={departments}
+        onClose={() => setItemModal(false)} onSaved={() => { setItemModal(false); load() }}
       />
       <MovementModal
-        open={!!movement}
-        item={movement?.item}
-        movementType={movement?.type}
-        onClose={() => setMovement(null)}
-        onSaved={() => { setMovement(null); load() }}
+        open={!!movement} item={movement?.item} movementType={movement?.type}
+        onClose={() => setMovement(null)} onSaved={() => { setMovement(null); load() }}
       />
       <HistoryModal
-        open={!!historyItem}
-        item={historyItem}
-        onClose={() => setHistoryItem(null)}
-        onChanged={load}
+        open={!!historyItem} item={historyItem}
+        onClose={() => setHistoryItem(null)} onChanged={load}
       />
     </>
   )

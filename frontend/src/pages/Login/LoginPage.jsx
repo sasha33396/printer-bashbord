@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { Form, Input, Button, Typography, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../../api/api'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -16,7 +17,8 @@ export default function LoginPage() {
       const params = new URLSearchParams({ username, password })
       const { data } = await api.post('/auth/login', params)
       localStorage.setItem('token', data.access_token)
-      navigate('/devices', { replace: true })
+      const next = searchParams.get('next')
+      navigate(next?.startsWith('/') && !next.startsWith('//') ? next : '/devices', { replace: true })
     } catch (err) {
       setError(
         err.response?.status === 401

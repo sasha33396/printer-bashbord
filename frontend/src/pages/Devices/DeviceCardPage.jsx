@@ -6,10 +6,11 @@ import {
   Tabs, Statistic, Row, Col, message, Spin,
 } from 'antd'
 import {
-  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined,
+  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined, PrinterOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
+import { printQrLabel } from '../../utils/qr'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -427,6 +428,19 @@ export default function DeviceCardPage() {
     } catch { message.error('Ошибка удаления') }
   }
 
+  const printLabel = async () => {
+    try {
+      await printQrLabel({
+        path: `/devices/${device.id}`,
+        inventoryNumber: device.inventory_number,
+        title: device.department?.branch?.name || 'Устройство',
+        subtitle: `${device.manufacturer} ${device.model}`,
+      })
+    } catch (error) {
+      message.error(error.message || 'Не удалось сформировать этикетку')
+    }
+  }
+
   // ---- Table columns ----
 
   const repairCols = [
@@ -637,6 +651,7 @@ export default function DeviceCardPage() {
           {device.inventory_number} — {device.manufacturer} {device.model}
         </Typography.Title>
         <Tag color={statusCfg.color}>{statusCfg.label}</Tag>
+        <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать QR</Button>
       </div>
 
       {/* Device info */}

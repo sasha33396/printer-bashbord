@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
-from models import Branch, Department, StockMovement, StockMovementType, WarehouseItem
+from models import Branch, Department, Device, StockMovement, StockMovementType, WarehouseItem
 from routers.auth import get_current_user
 from schemas import (
     StockMovementCreate,
@@ -79,6 +79,23 @@ def _validate_unique_sku(
         )
 
 
+def _validate_inventory_number(
+    db: Session,
+    inventory_number: Optional[str],
+    tracking_type: str,
+    exclude_item_id: Optional[int] = None,
+) -> None:
+    if tracking_type == "asset" and not inventory_number:
+        raise HTTPException(status_code=422, detail="Для поштучного учёта укажите инвентарный номер")
+    if not inventory_number:
+        return
+    query = db.query(WarehouseItem.id).filter(WarehouseItem.inventory_number == inventory_number)
+    if exclude_item_id is not None:
+        query = query.filter(WarehouseItem.id != exclude_item_id)
+    if query.first() or db.query(Device.id).filter(Device.inventory_number == inventory_number).first():
+        raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
+
+
 def _current_quantity(db: Session, item_id: int) -> int:
     value = (
         db.query(
@@ -108,6 +125,21 @@ def _item_read(item: WarehouseItem, quantity: int) -> WarehouseItemRead:
         department_id=item.department_id,
         branch=item.branch,
         department=item.department,
+        tracking_type=item.tracking_type,
+        inventory_number=item.inventory_number,
+        serial_number=item.serial_number,
+        manufacturer=item.manufacturer,
+        model=item.model,
+        placement=item.placement,
+        condition=item.condition,
+        compatible_printers=item.compatible_printers,
+        monitor_diagonal=item.monitor_diagonal,
+        color=item.color,
+        ram_gb=item.ram_gb,
+        processor=item.processor,
+        graphics=item.graphics,
+        storage_type=item.storage_type,
+        storage_capacity_gb=item.storage_capacity_gb,
         unit=item.unit,
         min_quantity=item.min_quantity,
         current_quantity=quantity,
@@ -129,6 +161,23 @@ def list_items(
     return [_item_read(item, _current_quantity(db, item.id)) for item in items]
 
 
+@router.get("/items/{item_id}", response_model=WarehouseItemRead)
+def get_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = (
+        db.query(WarehouseItem)
+        .options(joinedload(WarehouseItem.branch), joinedload(WarehouseItem.department))
+        .filter(WarehouseItem.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Позиция не найдена")
+    return _item_read(item, _current_quantity(db, item.id))
+
+
 @router.post("/items", response_model=WarehouseItemRead, status_code=status.HTTP_201_CREATED)
 def create_item(
     payload: WarehouseItemCreate,
@@ -137,13 +186,30 @@ def create_item(
 ):
     _validate_location(db, payload.branch_id, payload.department_id)
     sku = _normalize_optional(payload.sku)
+    inventory_number = _normalize_optional(payload.inventory_number)
     _validate_unique_sku(db, sku, payload.branch_id, payload.department_id)
+    _validate_inventory_number(db, inventory_number, payload.tracking_type)
     item = WarehouseItem(
         sku=sku,
         name=_required_text(payload.name, "Наименование"),
         category=_required_text(payload.category, "Категория"),
         branch_id=payload.branch_id,
         department_id=payload.department_id,
+        tracking_type=payload.tracking_type,
+        inventory_number=inventory_number,
+        serial_number=_normalize_optional(payload.serial_number),
+        manufacturer=_normalize_optional(payload.manufacturer),
+        model=_normalize_optional(payload.model),
+        placement=_required_text(payload.placement, "Местонахождение"),
+        condition=_required_text(payload.condition, "Состояние"),
+        compatible_printers=_normalize_optional(payload.compatible_printers),
+        monitor_diagonal=payload.monitor_diagonal,
+        color=_normalize_optional(payload.color),
+        ram_gb=payload.ram_gb,
+        processor=_normalize_optional(payload.processor),
+        graphics=_normalize_optional(payload.graphics),
+        storage_type=_normalize_optional(payload.storage_type),
+        storage_capacity_gb=payload.storage_capacity_gb,
         unit=_required_text(payload.unit, "Единица"),
         min_quantity=payload.min_quantity,
         notes=_normalize_optional(payload.notes),
@@ -151,12 +217,13 @@ def create_item(
     db.add(item)
     try:
         db.flush()
-        if payload.initial_quantity:
+        initial_quantity = 1 if payload.tracking_type == "asset" else payload.initial_quantity
+        if initial_quantity:
             db.add(StockMovement(
                 item_id=item.id,
                 date=date.today(),
                 movement_type=StockMovementType.receipt,
-                quantity=payload.initial_quantity,
+                quantity=initial_quantity,
                 notes="Начальный остаток",
             ))
         db.commit()
@@ -164,7 +231,7 @@ def create_item(
         db.rollback()
         raise HTTPException(status_code=409, detail="Позиция с таким артикулом уже существует") from exc
     db.refresh(item)
-    return _item_read(item, payload.initial_quantity)
+    return _item_read(item, 1 if payload.tracking_type == "asset" else payload.initial_quantity)
 
 
 @router.put("/items/{item_id}", response_model=WarehouseItemRead)
@@ -181,17 +248,23 @@ def update_item(
     branch_id = data.get("branch_id", item.branch_id)
     department_id = data.get("department_id", item.department_id)
     _validate_location(db, branch_id, department_id)
-    for field in ("name", "category", "unit"):
+    for field in ("name", "category", "unit", "placement", "condition"):
         if field in data:
             data[field] = data[field].strip()
             if not data[field]:
                 raise HTTPException(status_code=422, detail=f"Поле «{field}» не может быть пустым")
-    if "sku" in data:
-        data["sku"] = _normalize_optional(data["sku"])
+    optional_text_fields = (
+        "sku", "inventory_number", "serial_number", "manufacturer", "model",
+        "compatible_printers", "color", "processor", "graphics", "storage_type", "notes",
+    )
+    for field in optional_text_fields:
+        if field in data:
+            data[field] = _normalize_optional(data[field])
     sku = data.get("sku", item.sku)
     _validate_unique_sku(db, sku, branch_id, department_id, exclude_item_id=item.id)
-    if "notes" in data:
-        data["notes"] = _normalize_optional(data["notes"])
+    tracking_type = data.get("tracking_type", item.tracking_type)
+    inventory_number = data.get("inventory_number", item.inventory_number)
+    _validate_inventory_number(db, inventory_number, tracking_type, exclude_item_id=item.id)
     for field, value in data.items():
         setattr(item, field, value)
     try:

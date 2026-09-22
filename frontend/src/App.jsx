@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom'
 import { Layout, Menu, Button, Space, Typography } from 'antd'
 import {
@@ -6,6 +7,7 @@ import {
   SettingOutlined,
   LogoutOutlined,
   InboxOutlined,
+  QrcodeOutlined,
 } from '@ant-design/icons'
 
 import DevicesPage from './pages/Devices/DevicesPage'
@@ -14,6 +16,8 @@ import AnalyticsPage from './pages/Analytics/AnalyticsPage'
 import SettingsPage from './pages/Settings/SettingsPage'
 import LoginPage from './pages/Login/LoginPage'
 import WarehousePage from './pages/Warehouse/WarehousePage'
+import WarehouseItemPage from './pages/Warehouse/WarehouseItemPage'
+import QrScannerModal from './components/QrScannerModal'
 
 const { Header, Sider, Content } = Layout
 
@@ -29,7 +33,11 @@ function getUsername() {
 }
 
 function PrivateRoute({ children }) {
-  return localStorage.getItem('token') ? children : <Navigate to="/login" replace />
+  const location = useLocation()
+  const next = `${location.pathname}${location.search}`
+  return localStorage.getItem('token')
+    ? children
+    : <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
 }
 
 const menuItems = [
@@ -42,6 +50,7 @@ const menuItems = [
 function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   const logout = () => {
     localStorage.removeItem('token')
@@ -75,6 +84,7 @@ function AppLayout() {
             Учёт печатающей техники
           </Typography.Text>
           <Space>
+            <Button icon={<QrcodeOutlined />} onClick={() => setScannerOpen(true)}>Сканировать QR</Button>
             <Typography.Text>{getUsername()}</Typography.Text>
             <Button icon={<LogoutOutlined />} onClick={logout}>Выйти</Button>
           </Space>
@@ -86,10 +96,12 @@ function AppLayout() {
             <Route path="/devices/:id" element={<PrivateRoute><DeviceCardPage /></PrivateRoute>} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/warehouse" element={<PrivateRoute><WarehousePage /></PrivateRoute>} />
+            <Route path="/warehouse/items/:id" element={<PrivateRoute><WarehouseItemPage /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
           </Routes>
         </Content>
       </Layout>
+      <QrScannerModal open={scannerOpen} onClose={() => setScannerOpen(false)} />
     </Layout>
   )
 }
