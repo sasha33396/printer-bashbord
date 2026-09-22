@@ -3,7 +3,7 @@ from typing import Annotated, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 from network import normalize_ip_address
-from models import DeviceType, DeviceStatus, RepairType, ItemType
+from models import DeviceType, DeviceStatus, RepairType, RepairStatus, ItemType
 
 IPAddress = Annotated[Optional[str], BeforeValidator(normalize_ip_address)]
 
@@ -143,6 +143,7 @@ class RepairRecordCreate(BaseModel):
     device_id: int
     date: date
     repair_type: RepairType
+    repair_status: RepairStatus = RepairStatus.in_progress
     description: str
     contractor: Optional[str] = None
     cost: float = 0.0
@@ -154,6 +155,7 @@ class RepairRecordUpdate(BaseModel):
     device_id: Optional[int] = None
     date: Optional[date] = None
     repair_type: Optional[RepairType] = None
+    repair_status: Optional[RepairStatus] = None
     description: Optional[str] = None
     contractor: Optional[str] = None
     cost: Optional[float] = None
@@ -169,10 +171,13 @@ class RepairRecordRead(BaseModel):
     device: DeviceBrief
     date: date
     repair_type: RepairType
+    repair_status: RepairStatus
     description: str
     contractor: Optional[str] = None
     cost: float
     page_counter: Optional[int] = None
+    completion_page_counter: Optional[int] = None
+    page_counter_delta: Optional[int] = None
     notes: Optional[str] = None
 
 

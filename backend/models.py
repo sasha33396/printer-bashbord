@@ -27,6 +27,12 @@ class RepairType(str, enum.Enum):
     warranty = "warranty"
 
 
+class RepairStatus(str, enum.Enum):
+    in_progress = "in_progress"
+    completed = "completed"
+    impossible = "impossible"
+
+
 class ItemType(str, enum.Enum):
     toner_black = "toner_black"
     toner_color = "toner_color"
@@ -94,10 +100,13 @@ class RepairRecord(Base):
     device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
     date = Column(Date, nullable=False)
     repair_type = Column(SAEnum(RepairType), nullable=False)
+    repair_status = Column(SAEnum(RepairStatus), nullable=False, default=RepairStatus.in_progress)
     description = Column(Text, nullable=False)
     contractor = Column(String(255))
     cost = Column(Float, default=0.0)
     page_counter = Column(Integer, nullable=True)
+    completion_page_counter = Column(Integer, nullable=True)
+    page_counter_delta = Column(Integer, nullable=True)
     notes = Column(Text)
 
     device = relationship("Device", back_populates="repair_records")

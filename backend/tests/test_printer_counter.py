@@ -1,7 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from printer_counter import COUNTER_PATH, MAX_RESPONSE_BYTES, parse_counter, read_counter
+from printer_counter import (
+    COUNTER_PATH, MAX_RESPONSE_BYTES, calculate_counter_delta, parse_counter, read_counter,
+)
 
 
 def response_source(copy=3468, printed=60070, fax=0):
@@ -12,6 +14,16 @@ def response_source(copy=3468, printed=60070, fax=0):
 
 
 class PrinterCounterTests(unittest.TestCase):
+    def test_counter_delta(self):
+        self.assertEqual(calculate_counter_delta(63538, 64000), 462)
+        self.assertEqual(calculate_counter_delta(100, 100), 0)
+
+    def test_counter_delta_rejects_missing_or_decreased_counter(self):
+        for start, end in ((None, 100), (101, 100)):
+            with self.subTest(start=start, end=end):
+                with self.assertRaises(ValueError):
+                    calculate_counter_delta(start, end)
+
     def test_total_and_zero(self):
         self.assertEqual(parse_counter(response_source()), 63538)
         self.assertEqual(parse_counter(response_source(0, 0, 0)), 0)

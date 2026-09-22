@@ -28,6 +28,17 @@ def initialize_database():
             if name not in columns:
                 connection.execute(text(f"ALTER TABLE devices ADD COLUMN {name} {sql_type}"))
 
+        repair_columns = {
+            column["name"] for column in inspect(connection).get_columns("repair_records")
+        }
+        for name, sql_type in (
+            ("repair_status", "VARCHAR(20) NOT NULL DEFAULT 'completed'"),
+            ("completion_page_counter", "INTEGER"),
+            ("page_counter_delta", "INTEGER"),
+        ):
+            if name not in repair_columns:
+                connection.execute(text(f"ALTER TABLE repair_records ADD COLUMN {name} {sql_type}"))
+
 
 def get_db():
     db = SessionLocal()

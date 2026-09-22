@@ -36,6 +36,14 @@ const REPAIR_TYPE_OPTIONS = [
 const REPAIR_TYPE_LABELS = Object.fromEntries(REPAIR_TYPE_OPTIONS.map(o => [o.value, o.label]))
 const REPAIR_TYPE_COLORS = { planned: 'blue', unplanned: 'orange', warranty: 'green' }
 
+const REPAIR_STATUS_OPTIONS = [
+  { value: 'in_progress', label: 'В ремонте' },
+  { value: 'completed',   label: 'Завершен' },
+  { value: 'impossible',  label: 'Ремонт не возможен' },
+]
+const REPAIR_STATUS_LABELS = Object.fromEntries(REPAIR_STATUS_OPTIONS.map(o => [o.value, o.label]))
+const REPAIR_STATUS_COLORS = { in_progress: 'orange', completed: 'green', impossible: 'red' }
+
 const ITEM_TYPE_OPTIONS = [
   { value: 'toner_black', label: 'Тонер чёрный'  },
   { value: 'toner_color', label: 'Тонер цветной' },
@@ -63,6 +71,7 @@ function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onS
       form.setFieldsValue({
         date:        dayjs(editing.date),
         repair_type: editing.repair_type,
+        repair_status: editing.repair_status,
         description: editing.description,
         contractor:  editing.contractor,
         cost:        editing.cost,
@@ -73,6 +82,7 @@ function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onS
       form.resetFields()
       form.setFieldsValue({
         date: dayjs(),
+        repair_status: 'in_progress',
         page_counter: initialPageCounter ?? undefined,
       })
     }
@@ -84,8 +94,12 @@ function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onS
     try {
       const payload = { ...values, device_id: deviceId, date: values.date.format('YYYY-MM-DD') }
       if (editing) {
-        await api.put(`/repairs/${editing.id}`, payload)
-        message.success('Ремонт обновлён')
+        const { data } = await api.put(`/repairs/${editing.id}`, payload)
+        if (editing.repair_status === 'in_progress' && data.repair_status === 'completed') {
+          message.success(`Ремонт завершён. Разница счётчика: ${data.page_counter_delta} стр.`)
+        } else {
+          message.success('Ремонт обновлён')
+        }
       } else {
         await api.post('/repairs', payload)
         message.success('Ремонт добавлен')
@@ -120,6 +134,11 @@ function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onS
           <Col span={12}>
             <Form.Item name="repair_type" label="Тип ремонта" rules={[{ required: true, message: 'Выберите тип' }]}>
               <Select options={REPAIR_TYPE_OPTIONS} placeholder="Выберите тип" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="repair_status" label="Состояние" rules={[{ required: true }]}>
+              <Select options={REPAIR_STATUS_OPTIONS} />
             </Form.Item>
           </Col>
           <Col span={24}>
@@ -386,6 +405,10 @@ export default function DeviceCardPage() {
       title: 'Тип', dataIndex: 'repair_type', key: 'repair_type', width: 130,
       render: (v) => <Tag color={REPAIR_TYPE_COLORS[v]}>{REPAIR_TYPE_LABELS[v] ?? v}</Tag>,
     },
+    {
+      title: 'Состояние', dataIndex: 'repair_status', key: 'repair_status', width: 155,
+      render: (v) => <Tag color={REPAIR_STATUS_COLORS[v]}>{REPAIR_STATUS_LABELS[v] ?? v}</Tag>,
+    },
     { title: 'Описание', dataIndex: 'description', key: 'description', ellipsis: true },
     {
       title: 'Исполнитель', dataIndex: 'contractor', key: 'contractor', width: 160,
@@ -398,7 +421,17 @@ export default function DeviceCardPage() {
       render: (v) => <Typography.Text strong>{fmt(v)}</Typography.Text>,
     },
     {
-      title: 'Счётчик', dataIndex: 'page_counter', key: 'page_counter', width: 90,
+      title: 'Счётчик до', dataIndex: 'page_counter', key: 'page_counter', width: 110,
+      align: 'right',
+      render: (v) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
+    },
+    {
+      title: 'Счётчик после', dataIndex: 'completion_page_counter', key: 'completion_page_counter', width: 125,
+      align: 'right',
+      render: (v) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
+    },
+    {
+      title: 'Разница', dataIndex: 'page_counter_delta', key: 'page_counter_delta', width: 95,
       align: 'right',
       render: (v) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
@@ -502,6 +535,7 @@ export default function DeviceCardPage() {
           </div>
           <Table rowKey="id" dataSource={repairs} columns={repairCols}
             loading={repairsLoading} size="small"
+            scroll={{ x: 'max-content' }}
             pagination={{ pageSize: 15, hideOnSinglePage: true }}
           />
         </>
@@ -620,7 +654,7 @@ export default function DeviceCardPage() {
         deviceId={Number(id)}
         initialPageCounter={newRepairCounter}
         onClose={() => setRepairModal(false)}
-        onSaved={() => { setRepairModal(false); loadRepairs() }}
+        onSaved={() => { setRepairModal(false); loadRepairs(); loadDevice() }}
       />
       <ConsumableModal
         open={consumableModal}

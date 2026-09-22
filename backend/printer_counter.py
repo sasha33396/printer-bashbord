@@ -26,6 +26,14 @@ def parse_counter(source: str) -> int:
     return sum(values)
 
 
+def calculate_counter_delta(start: int, end: int) -> int:
+    if start is None:
+        raise ValueError("Не зафиксирован счётчик на начало ремонта")
+    if end < start:
+        raise ValueError("Текущий счётчик меньше начального. Проверьте показания принтера")
+    return end - start
+
+
 def read_counter(address: str) -> int:
     address = normalize_ip_address(address)
     if not address:
