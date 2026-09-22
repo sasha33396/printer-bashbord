@@ -53,7 +53,7 @@ const fmtDate = (v) => (v ? dayjs(v).format('DD.MM.YYYY') : '—')
 // RepairModal
 // ---------------------------------------------------------------------------
 
-function RepairModal({ open, editing, deviceId, onClose, onSaved }) {
+function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onSaved }) {
   const [form]   = Form.useForm()
   const [saving, setSaving] = useState(false)
 
@@ -71,9 +71,12 @@ function RepairModal({ open, editing, deviceId, onClose, onSaved }) {
       })
     } else {
       form.resetFields()
-      form.setFieldValue('date', dayjs())
+      form.setFieldsValue({
+        date: dayjs(),
+        page_counter: initialPageCounter ?? undefined,
+      })
     }
-  }, [open, editing, form])
+  }, [open, editing, initialPageCounter, form])
 
   const handleSave = async () => {
     const values = await form.validateFields()
@@ -135,7 +138,11 @@ function RepairModal({ open, editing, deviceId, onClose, onSaved }) {
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="page_counter" label="Счётчик страниц">
+            <Form.Item
+              name="page_counter"
+              label="Счётчик страниц"
+              extra={!editing && initialPageCounter != null ? 'Получен с принтера при открытии формы' : undefined}
+            >
               <InputNumber style={{ width: '100%' }} min={0} />
             </Form.Item>
           </Col>
@@ -259,6 +266,7 @@ export default function DeviceCardPage() {
 
   const [deviceLoading,      setDeviceLoading]      = useState(true)
   const [counterLoading, setCounterLoading] = useState(false)
+  const [repairCounterLoading, setRepairCounterLoading] = useState(false)
   const [repairsLoading,     setRepairsLoading]     = useState(false)
   const [consumablesLoading, setConsumablesLoading] = useState(false)
 
@@ -266,6 +274,7 @@ export default function DeviceCardPage() {
   const [consumableModal, setConsumableModal] = useState(false)
   const [editingRepair,     setEditingRepair]     = useState(null)
   const [editingConsumable, setEditingConsumable] = useState(null)
+  const [newRepairCounter, setNewRepairCounter] = useState(null)
 
   // ---- Loaders ----
 
@@ -325,6 +334,27 @@ export default function DeviceCardPage() {
     } finally {
       setCounterLoading(false)
     }
+  }
+
+  const openCreateRepair = async () => {
+    setEditingRepair(null)
+    setNewRepairCounter(null)
+
+    if (device.ip_address) {
+      setRepairCounterLoading(true)
+      try {
+        const { data } = await api.post(`/devices/${id}/counter`)
+        setDevice((current) => current?.id === data.id ? data : current)
+        setNewRepairCounter(data.page_counter)
+      } catch (err) {
+        const detail = err.response?.data?.detail || 'Не удалось получить счётчик'
+        message.warning(`${detail} Значение можно указать вручную.`)
+      } finally {
+        setRepairCounterLoading(false)
+      }
+    }
+
+    setRepairModal(true)
   }
 
   const handleDeleteRepair = async (repairId) => {
@@ -465,7 +495,8 @@ export default function DeviceCardPage() {
               </Col>
             </Row>
             <Button type="primary" icon={<PlusOutlined />}
-              onClick={() => { setEditingRepair(null); setRepairModal(true) }}>
+              loading={repairCounterLoading}
+              onClick={openCreateRepair}>
               Добавить ремонт
             </Button>
           </div>
@@ -587,6 +618,7 @@ export default function DeviceCardPage() {
         open={repairModal}
         editing={editingRepair}
         deviceId={Number(id)}
+        initialPageCounter={newRepairCounter}
         onClose={() => setRepairModal(false)}
         onSaved={() => { setRepairModal(false); loadRepairs() }}
       />
