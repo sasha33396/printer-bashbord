@@ -136,9 +136,13 @@ class WarehouseItem(Base):
     __tablename__ = "warehouse_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    sku = Column(String(100), unique=True, nullable=True, index=True)
+    # Physical column is named "article" so older global UNIQUE(sku) indexes
+    # do not prevent the same catalogue item from existing at several locations.
+    sku = Column("article", String(100), nullable=True, index=True)
     name = Column(String(255), nullable=False, index=True)
     category = Column(String(100), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
     unit = Column(String(30), nullable=False, default="шт.")
     min_quantity = Column(Integer, nullable=False, default=0)
     notes = Column(Text)
@@ -146,6 +150,8 @@ class WarehouseItem(Base):
     movements = relationship(
         "StockMovement", back_populates="item", cascade="all, delete-orphan"
     )
+    branch = relationship("Branch")
+    department = relationship("Department")
 
 
 class StockMovement(Base):

@@ -4,10 +4,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
-from models import StockMovement, StockMovementType, WarehouseItem
+from models import Branch, Department, StockMovement, StockMovementType, WarehouseItem
 from routers.auth import get_current_user
 from schemas import (
     StockMovementCreate,
@@ -43,6 +43,42 @@ def _required_text(value: str, label: str) -> str:
     return value
 
 
+def _validate_location(
+    db: Session,
+    branch_id: Optional[int],
+    department_id: Optional[int],
+) -> None:
+    if branch_id is None or not db.get(Branch, branch_id):
+        raise HTTPException(status_code=422, detail="Выберите существующий филиал")
+    if department_id is not None:
+        department = db.get(Department, department_id)
+        if not department or department.branch_id != branch_id:
+            raise HTTPException(status_code=422, detail="Отдел не относится к выбранному филиалу")
+
+
+def _validate_unique_sku(
+    db: Session,
+    sku: Optional[str],
+    branch_id: int,
+    department_id: Optional[int],
+    exclude_item_id: Optional[int] = None,
+) -> None:
+    if not sku:
+        return
+    query = db.query(WarehouseItem.id).filter(
+        WarehouseItem.sku == sku,
+        WarehouseItem.branch_id == branch_id,
+        WarehouseItem.department_id == department_id,
+    )
+    if exclude_item_id is not None:
+        query = query.filter(WarehouseItem.id != exclude_item_id)
+    if query.first():
+        raise HTTPException(
+            status_code=409,
+            detail="Позиция с таким артикулом уже есть на выбранном складе",
+        )
+
+
 def _current_quantity(db: Session, item_id: int) -> int:
     value = (
         db.query(
@@ -68,6 +104,10 @@ def _item_read(item: WarehouseItem, quantity: int) -> WarehouseItemRead:
         sku=item.sku,
         name=item.name,
         category=item.category,
+        branch_id=item.branch_id,
+        department_id=item.department_id,
+        branch=item.branch,
+        department=item.department,
         unit=item.unit,
         min_quantity=item.min_quantity,
         current_quantity=quantity,
@@ -80,7 +120,12 @@ def list_items(
     db: Session = Depends(get_db),
     _: dict = _auth,
 ):
-    items = db.query(WarehouseItem).order_by(WarehouseItem.category, WarehouseItem.name).all()
+    items = (
+        db.query(WarehouseItem)
+        .options(joinedload(WarehouseItem.branch), joinedload(WarehouseItem.department))
+        .order_by(WarehouseItem.category, WarehouseItem.name)
+        .all()
+    )
     return [_item_read(item, _current_quantity(db, item.id)) for item in items]
 
 
@@ -90,10 +135,15 @@ def create_item(
     db: Session = Depends(get_db),
     _: dict = _auth,
 ):
+    _validate_location(db, payload.branch_id, payload.department_id)
+    sku = _normalize_optional(payload.sku)
+    _validate_unique_sku(db, sku, payload.branch_id, payload.department_id)
     item = WarehouseItem(
-        sku=_normalize_optional(payload.sku),
+        sku=sku,
         name=_required_text(payload.name, "Наименование"),
         category=_required_text(payload.category, "Категория"),
+        branch_id=payload.branch_id,
+        department_id=payload.department_id,
         unit=_required_text(payload.unit, "Единица"),
         min_quantity=payload.min_quantity,
         notes=_normalize_optional(payload.notes),
@@ -126,6 +176,11 @@ def update_item(
 ):
     item = _get_item_or_404(db, item_id)
     data = payload.model_dump(exclude_unset=True)
+    if "branch_id" in data and data["branch_id"] != item.branch_id and "department_id" not in data:
+        data["department_id"] = None
+    branch_id = data.get("branch_id", item.branch_id)
+    department_id = data.get("department_id", item.department_id)
+    _validate_location(db, branch_id, department_id)
     for field in ("name", "category", "unit"):
         if field in data:
             data[field] = data[field].strip()
@@ -133,6 +188,8 @@ def update_item(
                 raise HTTPException(status_code=422, detail=f"Поле «{field}» не может быть пустым")
     if "sku" in data:
         data["sku"] = _normalize_optional(data["sku"])
+    sku = data.get("sku", item.sku)
+    _validate_unique_sku(db, sku, branch_id, department_id, exclude_item_id=item.id)
     if "notes" in data:
         data["notes"] = _normalize_optional(data["notes"])
     for field, value in data.items():

@@ -23,9 +23,11 @@ const apiErrorMessage = (err, fallback) => {
   return fallback
 }
 
-function ItemModal({ open, editing, categories, onClose, onSaved }) {
+function ItemModal({ open, editing, categories, branches, departments, onClose, onSaved }) {
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
+  const selectedBranch = Form.useWatch('branch_id', form)
+  const availableDepartments = departments.filter((item) => item.branch_id === selectedBranch)
 
   useEffect(() => {
     if (!open) return
@@ -86,6 +88,29 @@ function ItemModal({ open, editing, categories, onClose, onSaved }) {
                 options={categories.map((value) => ({ value }))}
                 placeholder="Картриджи, компьютеры…"
                 filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="branch_id" label="Филиал / склад" rules={[{ required: true, message: 'Выберите филиал' }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                options={branches.map((item) => ({ value: item.id, label: item.name }))}
+                placeholder="Выберите филиал"
+                onChange={() => form.setFieldValue('department_id', null)}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="department_id" label="Отдел">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                disabled={!selectedBranch}
+                options={availableDepartments.map((item) => ({ value: item.id, label: item.name }))}
+                placeholder="Выберите отдел"
               />
             </Form.Item>
           </Col>
@@ -264,9 +289,13 @@ function HistoryModal({ item, open, onClose, onChanged }) {
 
 export default function WarehousePage() {
   const [items, setItems] = useState([])
+  const [branches, setBranches] = useState([])
+  const [departments, setDepartments] = useState([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState()
+  const [branchId, setBranchId] = useState()
+  const [departmentId, setDepartmentId] = useState()
   const [itemModal, setItemModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [movement, setMovement] = useState(null)
@@ -286,6 +315,18 @@ export default function WarehousePage() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    Promise.all([
+      api.get('/orgs/branches'),
+      api.get('/orgs/departments'),
+    ])
+      .then(([branchResponse, departmentResponse]) => {
+        setBranches(branchResponse.data)
+        setDepartments(departmentResponse.data)
+      })
+      .catch((err) => message.error(apiErrorMessage(err, 'Не удалось загрузить филиалы и отделы')))
+  }, [])
+
   const categories = useMemo(
     () => [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b)),
     [items],
@@ -295,12 +336,18 @@ export default function WarehousePage() {
     const query = search.trim().toLowerCase()
     return items.filter((item) => {
       if (category && item.category !== category) return false
+      if (branchId && item.branch_id !== branchId) return false
+      if (departmentId && item.department_id !== departmentId) return false
       if (!query) return true
-      return [item.name, item.sku, item.category]
+      return [item.name, item.sku, item.category, item.branch?.name, item.department?.name]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(query))
     })
-  }, [items, search, category])
+  }, [items, search, category, branchId, departmentId])
+
+  const filterDepartments = branchId
+    ? departments.filter((item) => item.branch_id === branchId)
+    : departments
 
   const removeItem = async (id) => {
     try {
@@ -313,6 +360,13 @@ export default function WarehousePage() {
   }
 
   const columns = [
+    {
+      title: 'Склад', key: 'warehouse', width: 210,
+      render: (_, row) => {
+        if (!row.branch) return <Typography.Text type="secondary">Не указан</Typography.Text>
+        return row.department ? `${row.branch.name} / ${row.department.name}` : row.branch.name
+      },
+    },
     { title: 'Категория', dataIndex: 'category', width: 150 },
     { title: 'Артикул', dataIndex: 'sku', width: 120, render: (value) => value || '—' },
     { title: 'Наименование', dataIndex: 'name', ellipsis: true },
@@ -369,6 +423,26 @@ export default function WarehousePage() {
           options={categories.map((value) => ({ value, label: value }))}
           style={{ width: 190 }}
         />
+        <Select
+          placeholder="Все филиалы"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          value={branchId}
+          onChange={(value) => { setBranchId(value); setDepartmentId(undefined) }}
+          options={branches.map((item) => ({ value: item.id, label: item.name }))}
+          style={{ width: 190 }}
+        />
+        <Select
+          placeholder="Все отделы"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          value={departmentId}
+          onChange={setDepartmentId}
+          options={filterDepartments.map((item) => ({ value: item.id, label: item.name }))}
+          style={{ width: 190 }}
+        />
         <Button type="primary" icon={<PlusOutlined />} style={{ marginLeft: 'auto' }}
           onClick={() => { setEditing(null); setItemModal(true) }}>
           Добавить позицию
@@ -389,6 +463,8 @@ export default function WarehousePage() {
         open={itemModal}
         editing={editing}
         categories={categories}
+        branches={branches}
+        departments={departments}
         onClose={() => setItemModal(false)}
         onSaved={() => { setItemModal(false); load() }}
       />

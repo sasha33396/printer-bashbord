@@ -39,6 +39,31 @@ def initialize_database():
             if name not in repair_columns:
                 connection.execute(text(f"ALTER TABLE repair_records ADD COLUMN {name} {sql_type}"))
 
+        warehouse_columns = {
+            column["name"] for column in inspect(connection).get_columns("warehouse_items")
+        }
+        for name, sql_type in (
+            ("article", "VARCHAR(100)"),
+            ("branch_id", "INTEGER"),
+            ("department_id", "INTEGER"),
+        ):
+            if name not in warehouse_columns:
+                connection.execute(text(f"ALTER TABLE warehouse_items ADD COLUMN {name} {sql_type}"))
+        if "sku" in warehouse_columns:
+            connection.execute(text(
+                "UPDATE warehouse_items SET article = sku "
+                "WHERE article IS NULL AND sku IS NOT NULL"
+            ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_article ON warehouse_items (article)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_branch_id ON warehouse_items (branch_id)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_department_id ON warehouse_items (department_id)"
+        ))
+
 
 def get_db():
     db = SessionLocal()

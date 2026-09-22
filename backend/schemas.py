@@ -229,6 +229,8 @@ class WarehouseItemCreate(BaseModel):
     sku: Optional[str] = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(min_length=1, max_length=100)
+    branch_id: int
+    department_id: Optional[int] = None
     unit: str = Field(default="шт.", min_length=1, max_length=30)
     min_quantity: int = Field(default=0, ge=0)
     initial_quantity: int = Field(default=0, ge=0)
@@ -239,6 +241,8 @@ class WarehouseItemUpdate(BaseModel):
     sku: Optional[str] = Field(default=None, max_length=100)
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     category: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
     unit: Optional[str] = Field(default=None, min_length=1, max_length=30)
     min_quantity: Optional[int] = Field(default=None, ge=0)
     notes: Optional[str] = None
@@ -251,6 +255,10 @@ class WarehouseItemRead(BaseModel):
     sku: Optional[str] = None
     name: str
     category: str
+    branch_id: Optional[int] = None
+    department_id: Optional[int] = None
+    branch: Optional[BranchRead] = None
+    department: Optional[DepartmentRead] = None
     unit: str
     min_quantity: int
     current_quantity: int
