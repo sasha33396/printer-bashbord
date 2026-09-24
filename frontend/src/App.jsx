@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom'
 import { Layout, Menu, Button, Drawer, Grid, Space, Typography } from 'antd'
 import {
@@ -7,7 +7,7 @@ import {
   SettingOutlined,
   LogoutOutlined,
   InboxOutlined,
-  QrcodeOutlined,
+  BarcodeOutlined,
   MenuOutlined,
   DesktopOutlined,
 } from '@ant-design/icons'
@@ -20,11 +20,11 @@ import SettingsPage from './pages/Settings/SettingsPage'
 import LoginPage from './pages/Login/LoginPage'
 import WarehousePage from './pages/Warehouse/WarehousePage'
 import WarehouseItemPage from './pages/Warehouse/WarehouseItemPage'
-import QrScannerModal from './components/QrScannerModal'
 import WorkplacesPage from './pages/Workplaces/WorkplacesPage'
 import WorkplaceCardPage from './pages/Workplaces/WorkplaceCardPage'
 
 const { Header, Sider, Content } = Layout
+const BarcodeScannerModal = lazy(() => import('./components/BarcodeScannerModal'))
 
 function getUsername() {
   const token = localStorage.getItem('token')
@@ -90,8 +90,8 @@ function AppLayout() {
             </Typography.Text>
           </Space>
           <Space>
-            <Button icon={<QrcodeOutlined />} onClick={() => setScannerOpen(true)} aria-label="Сканировать QR" title="Сканировать QR">
-              <span className="desktop-only">Сканировать QR</span>
+            <Button icon={<BarcodeOutlined />} onClick={() => setScannerOpen(true)} aria-label="Сканировать штрихкод" title="Сканировать штрихкод">
+              <span className="desktop-only">Сканировать штрихкод</span>
             </Button>
             <Typography.Text className="desktop-only">{getUsername()}</Typography.Text>
             <Button icon={<LogoutOutlined />} onClick={logout} aria-label="Выйти" title="Выйти">
@@ -129,7 +129,11 @@ function AppLayout() {
           onClick={() => setMenuOpen(false)}
         />
       </Drawer>
-      <QrScannerModal open={scannerOpen} onClose={() => setScannerOpen(false)} />
+      {scannerOpen && (
+        <Suspense fallback={null}>
+          <BarcodeScannerModal open onClose={() => setScannerOpen(false)} />
+        </Suspense>
+      )}
     </Layout>
   )
 }

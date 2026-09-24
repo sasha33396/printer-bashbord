@@ -9,7 +9,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import api from '../../api/api'
-import { printQrLabel } from '../../utils/qr'
+import { printBarcodeLabel } from '../../utils/barcode'
 import { apiError, WORKPLACE_STATUS } from './WorkplacesPage'
 
 const fmtDate = (value) => value ? dayjs(value).format('DD.MM.YYYY') : '—'
@@ -112,7 +112,7 @@ export default function WorkplaceCardPage() {
 
   const printLabel = async () => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/workplaces/${workplace.id}`,
         inventoryNumber: workplace.name,
         title: workplace.branch?.name || 'Рабочее место',
@@ -168,7 +168,7 @@ export default function WorkplaceCardPage() {
             <span><span className="inventory-summary-label">Оборудование</span> {workplace.current_assets.length}</span>
           </div>
         </div>
-        <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать QR</Button>
+        <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать штрихкод</Button>
       </header>
 
       <div className="inventory-detail-divider" />

@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
-import { printQrLabel } from '../../utils/qr'
+import { printBarcodeLabel } from '../../utils/barcode'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -430,7 +430,7 @@ export default function DeviceCardPage() {
 
   const printLabel = async () => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/devices/${device.id}`,
         inventoryNumber: device.inventory_number,
         title: device.department?.branch?.name || 'Устройство',
@@ -652,7 +652,7 @@ export default function DeviceCardPage() {
           {device.inventory_number} — {device.manufacturer} {device.model}
         </Typography.Title>
         <Tag color={statusCfg.color}>{statusCfg.label}</Tag>
-        <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать QR</Button>
+        <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать штрихкод</Button>
       </div>
 
       {/* Device info */}

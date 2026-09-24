@@ -3,7 +3,7 @@ import { ArrowLeftOutlined, PrinterOutlined } from '@ant-design/icons'
 import { Button, Spin, message } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../api/api'
-import { printQrLabel } from '../../utils/qr'
+import { printBarcodeLabel } from '../../utils/barcode'
 
 const CATEGORY_LABELS = {
   'Компьютеры': 'Компьютер',
@@ -44,7 +44,7 @@ export default function WarehouseItemPage() {
 
   const printLabel = async () => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/warehouse/items/${item.id}`,
         inventoryNumber: item.inventory_number || item.sku,
         title: item.branch?.name || 'Склад',
@@ -115,7 +115,7 @@ export default function WarehouseItemPage() {
             </div>
           </div>
           <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>
-            Распечатать QR
+            Распечатать штрихкод
           </Button>
         </header>
 

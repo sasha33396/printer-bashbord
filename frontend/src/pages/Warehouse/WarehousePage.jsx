@@ -5,12 +5,12 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
-  PlusOutlined, QrcodeOutlined,
+  BarcodeOutlined, PlusOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
-import { printQrLabel } from '../../utils/qr'
+import { printBarcodeLabel } from '../../utils/barcode'
 
 const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Телефоны', 'Принтеры']
 const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры', 'Телефоны'])
@@ -478,7 +478,7 @@ export default function WarehousePage() {
 
   const printItem = async (item) => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/warehouse/items/${item.id}`,
         inventoryNumber: item.inventory_number || item.sku,
         title: item.branch?.name || 'Склад',
@@ -491,7 +491,7 @@ export default function WarehousePage() {
 
   const printDevice = async (device) => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/devices/${device.id}`,
         inventoryNumber: device.inventory_number,
         title: device.department?.branch?.name || 'Устройство',
@@ -526,7 +526,7 @@ export default function WarehousePage() {
           <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setMovement({ item: row, type: 'receipt' })}>Приход</Button>
           <Button size="small" icon={<MinusOutlined />} disabled={row.current_quantity <= 0} onClick={() => setMovement({ item: row, type: 'issue' })}>Отправить</Button>
         </>}
-        <Button size="small" icon={<QrcodeOutlined />} title="Распечатать QR" onClick={() => printItem(row)} />
+        <Button size="small" icon={<BarcodeOutlined />} title="Распечатать штрихкод" onClick={() => printItem(row)} />
         <Button size="small" icon={<HistoryOutlined />} title="История" onClick={() => setHistoryItem(row)} />
         <Button size="small" icon={<EditOutlined />} title="Редактировать" onClick={() => { setEditing(row); setItemModal(true) }} />
         <Popconfirm title="Удалить позицию?" onConfirm={() => removeItem(row.id)} okText="Удалить" cancelText="Отмена">
@@ -588,7 +588,7 @@ export default function WarehousePage() {
     {
       title: '', width: 120, fixed: 'right', align: 'right',
       render: (_, row) => <Space size={4}>
-        <Button size="small" icon={<QrcodeOutlined />} title="Распечатать QR" onClick={() => printDevice(row)} />
+        <Button size="small" icon={<BarcodeOutlined />} title="Распечатать штрихкод" onClick={() => printDevice(row)} />
         <Button size="small" type="primary" onClick={() => navigate(`/devices/${row.id}`)}>Открыть</Button>
       </Space>,
     },
