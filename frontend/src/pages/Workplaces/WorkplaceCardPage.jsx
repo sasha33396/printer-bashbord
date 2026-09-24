@@ -4,13 +4,14 @@ import {
   Select, Space, Spin, Table, Tag, Typography, message,
 } from 'antd'
 import {
-  ArrowLeftOutlined, DesktopOutlined, PlusOutlined, PrinterOutlined,
+  ArrowLeftOutlined, CameraOutlined, DesktopOutlined, PlusOutlined, PrinterOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import { apiError, WORKPLACE_STATUS } from './WorkplacesPage'
+import EquipmentPhotos from '../../components/EquipmentPhotos'
 
 const fmtDate = (value) => value ? dayjs(value).format('DD.MM.YYYY') : '—'
 
@@ -94,6 +95,7 @@ export default function WorkplaceCardPage() {
   const [loading, setLoading] = useState(true)
   const [assignmentOpen, setAssignmentOpen] = useState(false)
   const [endingId, setEndingId] = useState(null)
+  const [photoItem, setPhotoItem] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -203,6 +205,7 @@ export default function WorkplaceCardPage() {
               </div>
               <Tag>{assignment.item.condition}</Tag>
               <Space size={4}>
+                <Button size="small" icon={<CameraOutlined />} onClick={() => setPhotoItem(assignment.item)}>Фото</Button>
                 <Button size="small" onClick={() => navigate(`/warehouse/items/${assignment.item.id}`)}>Открыть</Button>
                 <Popconfirm
                   title="Снять оборудование с рабочего места?"
@@ -232,5 +235,15 @@ export default function WorkplaceCardPage() {
       open={assignmentOpen} workplace={workplace}
       onClose={() => setAssignmentOpen(false)} onSaved={() => { setAssignmentOpen(false); load() }}
     />
+    <Modal
+      title={photoItem ? `Фото: ${photoItem.inventory_number || photoItem.name}` : 'Фотографии'}
+      open={Boolean(photoItem)}
+      onCancel={() => setPhotoItem(null)}
+      footer={null}
+      width={860}
+      destroyOnClose
+    >
+      {photoItem && <EquipmentPhotos itemId={photoItem.id} />}
+    </Modal>
   </div>
 }

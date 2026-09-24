@@ -6,10 +6,12 @@ services:
     env_file: .env
     volumes:
       - db_data:/app/data
+      - "${PHOTO_DIRECTORY_HOST:-./equipment_photos}:/app/equipment_photos"
     ports:
       - "0.0.0.0:8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./data/printer_dashboard.db
+      - PHOTO_DIRECTORY=/app/equipment_photos
 
   frontend:
     build: ./frontend

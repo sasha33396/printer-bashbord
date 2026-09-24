@@ -4,6 +4,7 @@ import { Button, Spin, message } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
+import EquipmentPhotos from '../../components/EquipmentPhotos'
 
 const CATEGORY_LABELS = {
   'Компьютеры': 'Компьютер',
@@ -153,6 +154,11 @@ export default function WarehouseItemPage() {
           </div>
         </>}
       </section>
+      {item.tracking_type === 'asset' && (
+        <section className="workplace-section">
+          <EquipmentPhotos itemId={item.id} />
+        </section>
+      )}
     </div>
   )
 }

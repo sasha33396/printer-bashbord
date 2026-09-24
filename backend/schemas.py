@@ -1,4 +1,4 @@
-from datetime import date as Date
+from datetime import date as Date, datetime as DateTime
 from typing import Annotated, List, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
@@ -284,6 +284,12 @@ class WarehouseWorkplaceBrief(BaseModel):
 
     id: int
     name: str
+
+
+class EquipmentPhotoRead(BaseModel):
+    filename: str
+    size: int
+    created_at: DateTime
 
 
 class WarehouseItemRead(BaseModel):

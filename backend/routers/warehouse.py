@@ -1,7 +1,10 @@
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -12,7 +15,13 @@ from models import (
     WarehouseItem, WorkplaceAssetAssignment,
 )
 from routers.auth import get_current_user
+from photo_storage import (
+    IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
+    delete_photo_directory, image_extension, move_photo_directory,
+    photo_directory, photo_file, photo_files,
+)
 from schemas import (
+    EquipmentPhotoRead,
     StockMovementCreate,
     StockMovementRead,
     WarehouseItemCreate,
@@ -30,6 +39,25 @@ def _get_item_or_404(db: Session, item_id: int) -> WarehouseItem:
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция не найдена")
     return item
+
+
+def _photo_item_or_404(db: Session, item_id: int) -> WarehouseItem:
+    item = _get_item_or_404(db, item_id)
+    if item.tracking_type != "asset" or not item.inventory_number:
+        raise HTTPException(
+            status_code=422,
+            detail="Фотографии доступны для оборудования с поштучным учётом и инвентарным номером",
+        )
+    return item
+
+
+def _photo_read(path: Path) -> EquipmentPhotoRead:
+    stat = path.stat()
+    return EquipmentPhotoRead(
+        filename=path.name,
+        size=stat.st_size,
+        created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
 
 
 def _normalize_optional(value: Optional[str]) -> Optional[str]:
@@ -195,6 +223,123 @@ def get_item(
     )
 
 
+@router.get("/items/{item_id}/photos", response_model=List[EquipmentPhotoRead])
+def list_item_photos(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    return [_photo_read(path) for path in photo_files(item.inventory_number)]
+
+
+@router.get("/items/{item_id}/photos/{filename}")
+def get_item_photo(
+    item_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    try:
+        path = photo_file(item.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    return FileResponse(
+        path,
+        media_type=IMAGE_TYPES[path.suffix.lower()],
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.post(
+    "/items/{item_id}/photos",
+    response_model=List[EquipmentPhotoRead],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_item_photos(
+    item_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    existing = photo_files(item.inventory_number)
+    if not files:
+        raise HTTPException(status_code=422, detail="Выберите фотографии")
+    if len(existing) + len(files) > MAX_PHOTOS_PER_ITEM:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Для одного оборудования можно сохранить не более {MAX_PHOTOS_PER_ITEM} фотографий",
+        )
+
+    directory = photo_directory(item.inventory_number)
+    directory.mkdir(parents=True, exist_ok=True)
+    saved: List[Path] = []
+    temporary: List[Path] = []
+    try:
+        for upload in files:
+            temp_path = directory / f".{uuid4().hex}.tmp"
+            temporary.append(temp_path)
+            size = 0
+            header = b""
+            with temp_path.open("wb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_PHOTO_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="Размер одной фотографии не должен превышать 10 МБ",
+                        )
+                    if len(header) < 16:
+                        header = (header + chunk)[:16]
+                    output.write(chunk)
+            extension = image_extension(header)
+            if extension is None:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Поддерживаются фотографии JPEG, PNG и WebP",
+                )
+            filename = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:10]}{extension}"
+            target = directory / filename
+            temp_path.replace(target)
+            temporary.remove(temp_path)
+            saved.append(target)
+    except Exception:
+        for path in saved + temporary:
+            path.unlink(missing_ok=True)
+        if directory.exists() and not any(directory.iterdir()):
+            directory.rmdir()
+        raise
+    finally:
+        for upload in files:
+            await upload.close()
+
+    return [_photo_read(path) for path in photo_files(item.inventory_number)]
+
+
+@router.delete("/items/{item_id}/photos/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_item_photo(
+    item_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    try:
+        path = photo_file(item.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    path.unlink()
+    directory = path.parent
+    if not any(directory.iterdir()):
+        directory.rmdir()
+
+
 @router.post("/items", response_model=WarehouseItemRead, status_code=status.HTTP_201_CREATED)
 def create_item(
     payload: WarehouseItemCreate,
@@ -259,6 +404,7 @@ def update_item(
     _: dict = _auth,
 ):
     item = _get_item_or_404(db, item_id)
+    old_inventory_number = item.inventory_number
     data = payload.model_dump(exclude_unset=True)
     if "branch_id" in data and data["branch_id"] != item.branch_id and "department_id" not in data:
         data["department_id"] = None
@@ -282,12 +428,34 @@ def update_item(
     tracking_type = data.get("tracking_type", item.tracking_type)
     inventory_number = data.get("inventory_number", item.inventory_number)
     _validate_inventory_number(db, inventory_number, tracking_type, exclude_item_id=item.id)
+    has_photos = bool(old_inventory_number and photo_files(old_inventory_number))
+    if has_photos and not inventory_number:
+        raise HTTPException(
+            status_code=409,
+            detail="Сначала удалите фотографии или укажите новый инвентарный номер",
+        )
+    photos_moved = False
+    if old_inventory_number and inventory_number and old_inventory_number != inventory_number:
+        try:
+            photos_moved = move_photo_directory(old_inventory_number, inventory_number)
+        except FileExistsError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Для нового инвентарного номера уже существует каталог фотографий",
+            ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Не удалось перенести фотографии к новому инвентарному номеру",
+            ) from exc
     for field, value in data.items():
         setattr(item, field, value)
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        if photos_moved:
+            move_photo_directory(inventory_number, old_inventory_number)
         raise HTTPException(status_code=409, detail="Позиция с таким артикулом уже существует") from exc
     db.refresh(item)
     return _item_read(item, _current_quantity(db, item.id))
@@ -307,6 +475,7 @@ def delete_item(
         )
     db.delete(item)
     db.commit()
+    delete_photo_directory(item.inventory_number)
 
 
 @router.get("/items/{item_id}/movements", response_model=List[StockMovementRead])
