@@ -46,6 +46,8 @@ export async function printBarcodeLabel({ path, inventoryNumber, title, subtitle
       width: 2,
       height: 64,
       margin: 0,
+      marginLeft: 24,
+      marginRight: 24,
       displayValue: false,
       background: '#ffffff',
       lineColor: '#000000',
