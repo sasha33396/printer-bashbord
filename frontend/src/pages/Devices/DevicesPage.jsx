@@ -6,11 +6,12 @@ import {
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, DownloadOutlined,
-  EditOutlined, DeleteOutlined, EyeOutlined,
+  EditOutlined, DeleteOutlined, EyeOutlined, CopyOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
 import api from '../../api/api'
+import { copyText, deviceWebUrl } from '../../utils/network'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -384,8 +385,34 @@ export default function DevicesPage() {
       title: 'IP-адрес',
       dataIndex: 'ip_address',
       key: 'ip_address',
-      width: 160,
-      render: (v) => v || <Typography.Text type="secondary">—</Typography.Text>,
+      width: 190,
+      render: (v) => v ? (
+        <Space className="device-ip-value" size={4}>
+          <a
+            href={deviceWebUrl(v)}
+            target="_blank"
+            rel="noreferrer noopener"
+            title="Открыть веб-интерфейс принтера"
+          >
+            {v}
+          </a>
+          <Button
+            type="text"
+            size="small"
+            icon={<CopyOutlined />}
+            title="Скопировать IP-адрес"
+            aria-label="Скопировать IP-адрес"
+            onClick={async () => {
+              try {
+                await copyText(v)
+                message.success('IP-адрес скопирован')
+              } catch {
+                message.error('Не удалось скопировать IP-адрес')
+              }
+            }}
+          />
+        </Space>
+      ) : <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
       title: 'Инв.№',

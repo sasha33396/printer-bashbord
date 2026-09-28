@@ -488,6 +488,18 @@ body {
   color: #dc2626;
 }
 
+.device-ip-value {
+  max-width: 100%;
+}
+
+.device-ip-value a {
+  overflow-wrap: anywhere;
+}
+
+.device-ip-value .ant-btn {
+  flex: none;
+}
+
 .device-counter-section .workplace-section-header {
   margin-bottom: 10px;
 }

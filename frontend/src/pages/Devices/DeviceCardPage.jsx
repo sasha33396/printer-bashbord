@@ -6,12 +6,13 @@ import {
   Tabs, Statistic, Row, Col, message, Spin,
 } from 'antd'
 import {
-  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined, PrinterOutlined,
+  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CopyOutlined, PrinterOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
 import { printBarcodeLabel } from '../../utils/barcode'
+import { copyText, deviceWebUrl } from '../../utils/network'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -454,6 +455,15 @@ export default function DeviceCardPage() {
     }
   }
 
+  const copyIpAddress = async () => {
+    try {
+      await copyText(device.ip_address)
+      message.success('IP-адрес скопирован')
+    } catch {
+      message.error('Не удалось скопировать IP-адрес')
+    }
+  }
+
   // ---- Table columns ----
 
   const repairCols = [
@@ -700,7 +710,29 @@ export default function DeviceCardPage() {
           <DetailField label="Филиал" value={device.department?.branch?.name} />
           <DetailField label="Отдел" value={device.department?.name} />
           <DetailField label="Кабинет / местонахождение" value={device.location} />
-          <DetailField label="IP-адрес" value={device.ip_address} />
+          <DetailField
+            label="IP-адрес"
+            value={device.ip_address && (
+              <Space className="device-ip-value" size={4}>
+                <a
+                  href={deviceWebUrl(device.ip_address)}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  title="Открыть веб-интерфейс принтера"
+                >
+                  {device.ip_address}
+                </a>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CopyOutlined />}
+                  onClick={copyIpAddress}
+                  title="Скопировать IP-адрес"
+                  aria-label="Скопировать IP-адрес"
+                />
+              </Space>
+            )}
+          />
           <DetailField label="Производитель" value={device.manufacturer} />
           <DetailField label="Модель" value={device.model} />
           <DetailField label="Серийный №" value={device.serial_number} />
