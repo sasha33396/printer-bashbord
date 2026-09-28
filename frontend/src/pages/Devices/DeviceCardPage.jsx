@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Button, Card, Descriptions, Tag, Table, Space, Modal, Form,
+  Button, Tag, Table, Space, Modal, Form,
   Input, InputNumber, Select, DatePicker, Popconfirm, Typography,
   Tabs, Statistic, Row, Col, message, Spin,
 } from 'antd'
@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
+import EquipmentPhotos from '../../components/EquipmentPhotos'
 import { printBarcodeLabel } from '../../utils/barcode'
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,18 @@ const apiErrorMessage = (err, fallback) => {
       .join('; ') || fallback
   }
   return fallback
+}
+
+function DetailField({ label, value, wide = false }) {
+  const missing = value === null || value === undefined || value === ''
+  return (
+    <div className={`inventory-detail-field${wide ? ' inventory-detail-field-wide' : ''}`}>
+      <div className="inventory-detail-label">{label}</div>
+      <div className={missing ? 'inventory-detail-value inventory-detail-empty' : 'inventory-detail-value'}>
+        {missing ? '—' : value}
+      </div>
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -572,6 +585,9 @@ export default function DeviceCardPage() {
   if (!device) return null
 
   const statusCfg      = STATUS_CONFIG[device.status] ?? { color: 'default', label: device.status }
+  const statusClass = device.status === 'active'
+    ? 'inventory-status-success'
+    : device.status === 'repair' ? 'inventory-status-warning' : 'inventory-status-danger'
   const totalRepairCost   = repairs.reduce((s, r) => s + (r.cost ?? 0), 0)
   const totalConsumableCost = consumables.reduce((s, c) => s + (c.unit_cost ?? 0) * (c.quantity ?? 0), 0)
 
@@ -642,79 +658,93 @@ export default function DeviceCardPage() {
   ]
 
   return (
-    <>
-      {/* Header */}
-      <div className="page-header" style={{ marginBottom: 20 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/devices')}>
-          Устройства
-        </Button>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          {device.inventory_number} — {device.manufacturer} {device.model}
-        </Typography.Title>
-        <Tag color={statusCfg.color}>{statusCfg.label}</Tag>
-        <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать штрихкод</Button>
-      </div>
+    <div className="inventory-detail-page device-detail-page">
+      <Button
+        className="inventory-detail-back"
+        type="text"
+        icon={<ArrowLeftOutlined />}
+        onClick={() => navigate('/devices')}
+      >
+        Устройства
+      </Button>
 
-      {/* Device info */}
-      <Card style={{ marginBottom: 20 }}>
-        <Space wrap size="large">
-          <Statistic title="Общий счётчик (печать и копирование)" value={device.page_counter ?? '—'} />
-          <Space direction="vertical">
-            <Button onClick={refreshCounter} loading={counterLoading} disabled={!device.ip_address}>
-              Обновить счётчик
-            </Button>
-            <Typography.Text type="secondary">
-              {device.ip_address ? `Опрос ${device.ip_address}` : 'Укажите IP-адрес в настройках устройства'}
-            </Typography.Text>
-            <Typography.Text type="secondary">
-              {device.counter_checked_at
-                ? `Получен: ${dayjs(device.counter_checked_at).format('DD.MM.YYYY HH:mm:ss')}`
-                : 'Счётчик ещё не получен'}
-            </Typography.Text>
-          </Space>
-        </Space>
-      </Card>
-      <Card style={{ marginBottom: 20 }}>
-        <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small">
-          <Descriptions.Item label="Тип">
-            {TYPE_LABELS[device.device_type] ?? device.device_type}
-          </Descriptions.Item>
-          <Descriptions.Item label="IP-адрес">
-            {device.ip_address || <Typography.Text type="secondary">—</Typography.Text>}
-          </Descriptions.Item>
-          <Descriptions.Item label="Серийный №">
-            {device.serial_number || <Typography.Text type="secondary">—</Typography.Text>}
-          </Descriptions.Item>
-          <Descriptions.Item label="Статус">
-            <Tag color={statusCfg.color}>{statusCfg.label}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="Филиал">
-            {device.department?.branch?.name || <Typography.Text type="secondary">—</Typography.Text>}
-          </Descriptions.Item>
-          <Descriptions.Item label="Отдел">
-            {device.department?.name || <Typography.Text type="secondary">—</Typography.Text>}
-          </Descriptions.Item>
-          <Descriptions.Item label="Кабинет">
-            {device.location || <Typography.Text type="secondary">—</Typography.Text>}
-          </Descriptions.Item>
-          <Descriptions.Item label="Дата покупки">{fmtDate(device.purchase_date)}</Descriptions.Item>
-          <Descriptions.Item label="Гарантия до">
-            {device.warranty_until ? (
-              <span style={{ color: dayjs().isAfter(dayjs(device.warranty_until)) ? '#ff4d4f' : undefined }}>
+      <section className="inventory-detail-card">
+        <header className="inventory-detail-header">
+          <div className="inventory-detail-heading">
+            <div className="inventory-detail-title-row">
+              <h1>{device.manufacturer} {device.model}</h1>
+              <span className="inventory-category-badge">
+                {TYPE_LABELS[device.device_type] ?? device.device_type}
+              </span>
+            </div>
+            <div className="inventory-detail-summary">
+              <span className={`inventory-status ${statusClass}`}>
+                <span className="inventory-status-dot" />
+                {statusCfg.label}
+              </span>
+              <span>
+                <span className="inventory-summary-label">Инв. №</span> {device.inventory_number}
+              </span>
+              <span>
+                <span className="inventory-summary-label">Счётчик</span> {device.page_counter ?? '—'}
+              </span>
+            </div>
+          </div>
+          <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>
+            Распечатать штрихкод
+          </Button>
+        </header>
+
+        <div className="inventory-detail-divider" />
+        <div className="inventory-detail-grid">
+          <DetailField label="Филиал" value={device.department?.branch?.name} />
+          <DetailField label="Отдел" value={device.department?.name} />
+          <DetailField label="Кабинет / местонахождение" value={device.location} />
+          <DetailField label="IP-адрес" value={device.ip_address} />
+          <DetailField label="Производитель" value={device.manufacturer} />
+          <DetailField label="Модель" value={device.model} />
+          <DetailField label="Серийный №" value={device.serial_number} />
+          <DetailField label="Дата покупки" value={fmtDate(device.purchase_date)} />
+          <DetailField
+            label="Гарантия до"
+            value={device.warranty_until ? (
+              <span className={dayjs().isAfter(dayjs(device.warranty_until)) ? 'device-warranty-expired' : undefined}>
                 {fmtDate(device.warranty_until)}
               </span>
-            ) : <Typography.Text type="secondary">—</Typography.Text>}
-          </Descriptions.Item>
-          {device.notes && (
-            <Descriptions.Item label="Примечание" span={3}>{device.notes}</Descriptions.Item>
-          )}
-        </Descriptions>
-      </Card>
+            ) : null}
+          />
+          {device.notes && <DetailField label="Примечание" value={device.notes} wide />}
+        </div>
+      </section>
 
-      {/* Repairs + Consumables */}
-      <Card>
+      <section className="workplace-section device-counter-section">
+        <div className="workplace-section-header">
+          <div>
+            <h2>Счётчик страниц</h2>
+            <p>{device.ip_address ? `Опрос устройства по адресу ${device.ip_address}` : 'Для автоматического опроса укажите IP-адрес'}</p>
+          </div>
+          <Button onClick={refreshCounter} loading={counterLoading} disabled={!device.ip_address}>
+            Обновить счётчик
+          </Button>
+        </div>
+        <div className="device-counter-content">
+          <strong>{device.page_counter ?? '—'}</strong>
+          {device.page_counter != null && <span>страниц</span>}
+        </div>
+        <div className="device-counter-checked">
+          {device.counter_checked_at
+            ? `Последний опрос: ${dayjs(device.counter_checked_at).format('DD.MM.YYYY HH:mm:ss')}`
+            : 'Счётчик ещё не получен'}
+        </div>
+      </section>
+
+      <section className="workplace-section">
+        <EquipmentPhotos itemId={device.id} resourcePath={`/devices/${device.id}/photos`} />
+      </section>
+
+      <section className="workplace-section device-history-section">
         <Tabs items={tabItems} />
-      </Card>
+      </section>
 
       {/* Modals */}
       <RepairModal
@@ -732,6 +762,6 @@ export default function DeviceCardPage() {
         onClose={() => setConsumableModal(false)}
         onSaved={() => { setConsumableModal(false); loadConsumables() }}
       />
-    </>
+    </div>
   )
 }

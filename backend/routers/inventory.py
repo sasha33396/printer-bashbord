@@ -220,6 +220,9 @@ def export_inventory_archive(db: Session = Depends(get_db), _: dict = _auth):
                     f"{device.inventory_number}/{device.inventory_number}.txt",
                     _card_text(card).encode("utf-8"),
                 )
+                normalize_photo_filenames(device.inventory_number)
+                for photo in photo_files(device.inventory_number):
+                    archive.write(photo, arcname=f"{device.inventory_number}/{photo.name}")
             for item in items:
                 card = _warehouse_card(item, db)
                 archive.writestr(
@@ -442,10 +445,11 @@ async def import_inventory_archive(
                 raise HTTPException(status_code=422, detail="В архиве нет инвентарных TXT-карточек")
 
             result = {"created": 0, "updated": 0, "photos": 0, "errors": []}
-            item_by_number: dict[str, WarehouseItem] = {}
+            photo_inventory_numbers: set[str] = set()
             with inventory_number_lock:
                 for inventory_number, card in sorted(cards.items()):
                     try:
+                        allow_photos = False
                         if card.get("archive_version") != ARCHIVE_VERSION:
                             raise ValueError("неподдерживаемая версия карточки")
                         if card.get("inventory_number") != inventory_number:
@@ -454,20 +458,22 @@ async def import_inventory_archive(
                             raise ValueError("в TXT отсутствуют данные карточки")
                         if card.get("entity_type") == "device":
                             action = _import_device(db, inventory_number, card.get("data") or {})
+                            allow_photos = True
                         elif card.get("entity_type") == "warehouse_item":
                             action, item = _import_warehouse_item(db, inventory_number, card.get("data") or {})
-                            if item.tracking_type == "asset":
-                                item_by_number[inventory_number] = item
+                            allow_photos = item.tracking_type == "asset"
                         else:
                             raise ValueError("неизвестный тип записи")
                         db.commit()
+                        if allow_photos:
+                            photo_inventory_numbers.add(inventory_number)
                         result[action] += 1
                     except Exception as exc:
                         db.rollback()
                         result["errors"].append(f"{inventory_number}: {exc}")
 
             for inventory_number, entries_for_item in photo_entries.items():
-                if inventory_number not in item_by_number:
+                if inventory_number not in photo_inventory_numbers:
                     continue
                 directory = photo_directory(inventory_number)
                 directory.mkdir(parents=True, exist_ok=True)

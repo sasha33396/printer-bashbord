@@ -8,7 +8,7 @@ const errorMessage = (error, fallback) => {
   return typeof detail === 'string' ? detail : fallback
 }
 
-export default function EquipmentPhotos({ itemId }) {
+export default function EquipmentPhotos({ itemId, resourcePath }) {
   const inputRef = useRef(null)
   const urlsRef = useRef([])
   const requestRef = useRef(0)
@@ -16,6 +16,7 @@ export default function EquipmentPhotos({ itemId }) {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState(null)
+  const photosPath = resourcePath || `/warehouse/items/${itemId}/photos`
 
   const revokeUrls = useCallback(() => {
     urlsRef.current.forEach((url) => URL.revokeObjectURL(url))
@@ -26,10 +27,10 @@ export default function EquipmentPhotos({ itemId }) {
     const request = ++requestRef.current
     setLoading(true)
     try {
-      const { data } = await api.get(`/warehouse/items/${itemId}/photos`)
+      const { data } = await api.get(photosPath)
       const hydrated = await Promise.all(data.map(async (photo) => {
         const response = await api.get(
-          `/warehouse/items/${itemId}/photos/${encodeURIComponent(photo.filename)}`,
+          `${photosPath}/${encodeURIComponent(photo.filename)}`,
           { responseType: 'blob' },
         )
         return { ...photo, url: URL.createObjectURL(response.data) }
@@ -48,7 +49,7 @@ export default function EquipmentPhotos({ itemId }) {
     } finally {
       if (request === requestRef.current) setLoading(false)
     }
-  }, [itemId, revokeUrls])
+  }, [photosPath, revokeUrls])
 
   useEffect(() => {
     load()
@@ -66,7 +67,7 @@ export default function EquipmentPhotos({ itemId }) {
     files.forEach((file) => form.append('files', file))
     setUploading(true)
     try {
-      await api.post(`/warehouse/items/${itemId}/photos`, form)
+      await api.post(photosPath, form)
       message.success(files.length === 1 ? 'Фотография добавлена' : 'Фотографии добавлены')
       await load()
     } catch (error) {
@@ -79,7 +80,7 @@ export default function EquipmentPhotos({ itemId }) {
   const remove = async (photo) => {
     setDeleting(photo.filename)
     try {
-      await api.delete(`/warehouse/items/${itemId}/photos/${encodeURIComponent(photo.filename)}`)
+      await api.delete(`${photosPath}/${encodeURIComponent(photo.filename)}`)
       message.success('Фотография удалена')
       await load()
     } catch (error) {

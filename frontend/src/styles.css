@@ -484,6 +484,41 @@ body {
   background: rgba(255, 255, 255, 0.92);
 }
 
+.device-warranty-expired {
+  color: #dc2626;
+}
+
+.device-counter-section .workplace-section-header {
+  margin-bottom: 10px;
+}
+
+.device-counter-content {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.device-counter-content strong {
+  color: #111827;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.device-counter-content span,
+.device-counter-checked {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.device-counter-checked {
+  margin-top: 6px;
+}
+
+.device-history-section .ant-tabs-nav {
+  margin-top: -4px;
+}
+
 @media (max-width: 1199px) {
   .inventory-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

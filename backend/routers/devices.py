@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import io
 from datetime import date, datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 from typing import List, Optional
 
 import openpyxl
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
@@ -14,10 +17,15 @@ from inventory_numbers import (
     require_inventory_number,
 )
 from network import normalize_ip_address
+from photo_storage import (
+    IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
+    delete_photo_directory, image_extension, next_photo_filename,
+    normalize_photo_filenames, photo_directory, photo_file, photo_files,
+)
 from printer_counter import read_counter
 from models import Branch, Department, Device, DeviceType, DeviceStatus
 from routers.auth import get_current_user
-from schemas import DeviceCreate, DeviceUpdate, DeviceRead
+from schemas import DeviceCreate, DeviceUpdate, DeviceRead, EquipmentPhotoRead
 
 router = APIRouter()
 
@@ -99,6 +107,15 @@ def _load_with_relations(db: Session):
     """Базовый запрос с жадной загрузкой Department → Branch."""
     return db.query(Device).options(
         joinedload(Device.department).joinedload(Department.branch)
+    )
+
+
+def _photo_read(path: Path) -> EquipmentPhotoRead:
+    stat = path.stat()
+    return EquipmentPhotoRead(
+        filename=path.name,
+        size=stat.st_size,
+        created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
     )
 
 
@@ -340,6 +357,126 @@ def get_device(
     return device
 
 
+@router.get("/{device_id}/photos", response_model=List[EquipmentPhotoRead])
+def list_device_photos(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    return [_photo_read(path) for path in photo_files(device.inventory_number)]
+
+
+@router.get("/{device_id}/photos/{filename}")
+def get_device_photo(
+    device_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    try:
+        path = photo_file(device.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    return FileResponse(
+        path,
+        media_type=IMAGE_TYPES[path.suffix.lower()],
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.post(
+    "/{device_id}/photos",
+    response_model=List[EquipmentPhotoRead],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_device_photos(
+    device_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    inventory_number = device.inventory_number
+    existing = photo_files(inventory_number)
+    if not files:
+        raise HTTPException(status_code=422, detail="Выберите фотографии")
+    if len(existing) + len(files) > MAX_PHOTOS_PER_ITEM:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Для одного устройства можно сохранить не более {MAX_PHOTOS_PER_ITEM} фотографий",
+        )
+
+    directory = photo_directory(inventory_number)
+    directory.mkdir(parents=True, exist_ok=True)
+    normalize_photo_filenames(inventory_number)
+    saved: List[Path] = []
+    temporary: List[Path] = []
+    try:
+        for upload in files:
+            temp_path = directory / f".{uuid4().hex}.tmp"
+            temporary.append(temp_path)
+            size = 0
+            header = b""
+            with temp_path.open("wb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_PHOTO_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="Размер одной фотографии не должен превышать 10 МБ",
+                        )
+                    if len(header) < 16:
+                        header = (header + chunk)[:16]
+                    output.write(chunk)
+            extension = image_extension(header)
+            if extension is None:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Поддерживаются фотографии JPEG, PNG и WebP",
+                )
+            target = directory / next_photo_filename(inventory_number, extension)
+            temp_path.replace(target)
+            temporary.remove(temp_path)
+            saved.append(target)
+    except Exception:
+        for path in saved + temporary:
+            path.unlink(missing_ok=True)
+        if directory.exists() and not any(directory.iterdir()):
+            directory.rmdir()
+        raise
+    finally:
+        for upload in files:
+            await upload.close()
+
+    return [_photo_read(path) for path in photo_files(inventory_number)]
+
+
+@router.delete("/{device_id}/photos/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_device_photo(
+    device_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    try:
+        path = photo_file(device.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    path.unlink()
+    directory = path.parent
+    if not any(directory.iterdir()):
+        directory.rmdir()
+    else:
+        normalize_photo_filenames(device.inventory_number)
+
+
 @router.put("/{device_id}", response_model=DeviceRead)
 def update_device(
     device_id: int,
@@ -401,5 +538,7 @@ def delete_device(
     _: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
+    inventory_number = device.inventory_number
     db.delete(device)
     db.commit()
+    delete_photo_directory(inventory_number)
