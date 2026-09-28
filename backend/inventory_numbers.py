@@ -49,12 +49,15 @@ def used_inventory_numbers(db: Session) -> set[str]:
 
 
 def next_inventory_number(db: Session) -> str:
-    sequences = [
+    used_sequences = {
         sequence
         for value in used_inventory_numbers(db)
         if (sequence := inventory_sequence(value)) is not None
-    ]
-    return format_inventory_number(max(sequences, default=0) + 1)
+    }
+    for sequence in range(1, INVENTORY_LIMIT + 1):
+        if sequence not in used_sequences:
+            return format_inventory_number(sequence)
+    raise ValueError("Закончился диапазон инвентарных номеров")
 
 
 def inventory_number_owner(
@@ -107,23 +110,27 @@ def migrate_inventory_numbers(db: Session) -> list[tuple[str, int, str, str]]:
         else:
             pending.append((entity_type, entity_id, entity, value))
 
-    next_sequence = max(
-        (inventory_sequence(value) or 0 for value in used),
-        default=0,
-    ) + 1
-
+    unassigned = []
     for entity_type, entity_id, entity, old_value in pending:
         numeric_sequence = int(old_value) if old_value.isdigit() else None
-        candidate = None
         if numeric_sequence and numeric_sequence <= INVENTORY_LIMIT:
             numeric_candidate = format_inventory_number(numeric_sequence)
             if numeric_candidate not in used:
-                candidate = numeric_candidate
-        if candidate is None:
+                used.add(numeric_candidate)
+                entity.inventory_number = numeric_candidate
+                changes.append((entity_type, entity_id, old_value, numeric_candidate))
+                continue
+        unassigned.append((entity_type, entity_id, entity, old_value))
+
+    next_sequence = 1
+    for entity_type, entity_id, entity, old_value in unassigned:
+        try:
             while format_inventory_number(next_sequence) in used:
                 next_sequence += 1
             candidate = format_inventory_number(next_sequence)
-            next_sequence += 1
+        except ValueError as exc:
+            raise ValueError("Закончился диапазон инвентарных номеров") from exc
+        next_sequence += 1
         used.add(candidate)
         entity.inventory_number = candidate
         changes.append((entity_type, entity_id, old_value, candidate))

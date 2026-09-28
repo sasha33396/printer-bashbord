@@ -70,9 +70,18 @@ class InventoryNumberTests(unittest.TestCase):
             *[row.inventory_number for row in self.session.query(Device).all()],
             *[row.inventory_number for row in self.session.query(WarehouseItem).all()],
         }
-        self.assertEqual(numbers, {"1-00005", "1-00006", "1-00007", "1-00012"})
+        self.assertEqual(numbers, {"1-00001", "1-00002", "1-00005", "1-00012"})
         self.assertEqual(len(changes), 3)
-        self.assertEqual(next_inventory_number(self.session), "1-00013")
+        self.assertEqual(next_inventory_number(self.session), "1-00003")
+
+    def test_next_number_fills_gap_before_higher_numbers(self):
+        self.session.add_all([
+            self.device(format_inventory_number(sequence))
+            for sequence in [*range(1, 37), 123, 124, 125]
+        ])
+        self.session.commit()
+
+        self.assertEqual(next_inventory_number(self.session), "1-00037")
 
 
 if __name__ == "__main__":
