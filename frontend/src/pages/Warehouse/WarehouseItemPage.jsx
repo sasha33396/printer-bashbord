@@ -49,7 +49,7 @@ export default function WarehouseItemPage() {
         path: `/warehouse/items/${item.id}`,
         inventoryNumber: item.inventory_number || item.sku,
         title: item.branch?.name || 'Склад',
-        subtitle: [item.manufacturer, item.model || item.name].filter(Boolean).join(' '),
+        subtitle: item.name,
       })
     } catch (error) {
       message.error(error.message || 'Не удалось сформировать этикетку')

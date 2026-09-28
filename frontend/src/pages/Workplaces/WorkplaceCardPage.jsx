@@ -269,7 +269,7 @@ export default function WorkplaceCardPage() {
 
   const status = WORKPLACE_STATUS[workplace.status] || { label: workplace.status, color: 'default' }
   const historyColumns = [
-    { title: 'Оборудование', key: 'item', render: (_, row) => `${row.item.category} · ${row.item.inventory_number || 'без №'} · ${row.item.model || row.item.name}` },
+    { title: 'Оборудование', key: 'item', render: (_, row) => `${row.item.category} · ${row.item.inventory_number || 'без №'} · ${row.item.name}` },
     { title: 'Установлено', dataIndex: 'assigned_at', width: 120, render: fmtDate },
     { title: 'Снято', dataIndex: 'ended_at', width: 120, render: fmtDate },
     { title: 'Примечание', dataIndex: 'notes', render: (value) => value || '—' },
@@ -359,7 +359,7 @@ export default function WorkplaceCardPage() {
             <article className="workplace-asset-row" key={assignment.id}>
               <div className="workplace-asset-icon"><DesktopOutlined /></div>
               <div className="workplace-asset-main">
-                <strong>{assignment.item.manufacturer} {assignment.item.model || assignment.item.name}</strong>
+                <strong>{assignment.item.name}</strong>
                 <span>{assignment.item.category} · Инв. № {assignment.item.inventory_number || '—'} · S/N {assignment.item.serial_number || '—'}</span>
               </div>
               <Tag>{assignment.item.condition}</Tag>

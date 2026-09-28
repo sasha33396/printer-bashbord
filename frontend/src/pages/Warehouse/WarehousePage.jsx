@@ -537,7 +537,7 @@ export default function WarehousePage() {
         path: `/warehouse/items/${item.id}`,
         inventoryNumber: item.inventory_number || item.sku,
         title: item.branch?.name || 'Склад',
-        subtitle: [item.manufacturer, item.model || item.name].filter(Boolean).join(' '),
+        subtitle: item.name,
       })
     } catch (error) {
       message.error(error.message || 'Не удалось сформировать этикетку')
@@ -564,6 +564,10 @@ export default function WarehousePage() {
   const numberColumn = {
     title: '№', key: 'number', width: 110,
     render: (_, row) => row.inventory_number || row.sku || row.id,
+  }
+  const nameColumn = {
+    title: 'Наименование', dataIndex: 'name', ellipsis: true,
+    render: (text) => text || '—',
   }
   const notesColumn = { title: 'Примечание', dataIndex: 'notes', ellipsis: true, render: (value) => value || '—' }
   const stateColumn = {
@@ -603,14 +607,14 @@ export default function WarehousePage() {
   ]
   const cartridgeColumns = [
     locationColumn, numberColumn,
-    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    nameColumn,
     { title: 'Для принтеров', dataIndex: 'compatible_printers', render: (value) => value || '—' },
     { title: 'Кол-во', dataIndex: 'current_quantity', width: 90, align: 'right' },
     itemActions,
   ]
   const monitorColumns = [
     locationColumn, numberColumn,
-    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    nameColumn,
     { title: 'Диагональ', dataIndex: 'monitor_diagonal', width: 100, render: (value) => value ? `${value}″` : '—' },
     { title: 'Цвет', dataIndex: 'color', width: 100, render: (value) => value || '—' },
     { title: 'S/N', dataIndex: 'serial_number', width: 140, render: (value) => value || '—' },
@@ -619,7 +623,7 @@ export default function WarehousePage() {
   const computerColumns = [
     locationColumn, numberColumn,
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
-    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    nameColumn,
     { title: 'ОЗУ', dataIndex: 'ram_gb', width: 75, render: (value) => value != null ? `${value} ГБ` : '—' },
     { title: 'ЦП', dataIndex: 'processor', width: 160, render: (value) => value || '—' },
     { title: 'ГПУ', dataIndex: 'graphics', width: 170, render: (value) => value || '—' },
@@ -634,7 +638,7 @@ export default function WarehousePage() {
     },
     { title: 'Инв. №', dataIndex: 'inventory_number', width: 120 },
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
-    { title: 'Модель', key: 'model', render: (_, row) => `${row.manufacturer} ${row.model}` },
+    { title: 'Наименование', key: 'name', render: (_, row) => `${row.manufacturer} ${row.model}` },
     { title: 'Тип принтера', dataIndex: 'device_type', width: 125, render: (value) => DEVICE_TYPE_LABELS[value] || value },
     { title: 'Счётчик', dataIndex: 'page_counter', width: 100, align: 'right', render: (value) => value ?? '—' },
     { title: 'Последний ремонт', key: 'last_repair', width: 135, render: (_, row) => lastRepair[row.id] ? dayjs(lastRepair[row.id]).format('DD.MM.YYYY') : '—' },
@@ -659,7 +663,7 @@ export default function WarehousePage() {
       <div className="page-toolbar" style={{ marginBottom: 18 }}>
         <Typography.Title level={3} style={{ margin: 0 }}>Склад и оборудование</Typography.Title>
         <Input.Search
-          placeholder="Инвентарный №, модель, S/N"
+          placeholder="Инвентарный №, наименование, S/N"
           allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }}
         />
         <Select
