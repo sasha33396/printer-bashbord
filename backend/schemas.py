@@ -409,6 +409,11 @@ class WorkplaceUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class WorkplacePhotoSelect(BaseModel):
+    item_id: int
+    filename: str = Field(min_length=1, max_length=255)
+
+
 class WorkplaceAssetBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -459,6 +464,8 @@ class WorkplaceRead(BaseModel):
     location: Optional[str] = None
     status: WorkplaceStatus
     notes: Optional[str] = None
+    photo_item_id: Optional[int] = None
+    has_photo: bool = False
     current_assets: List[WorkplaceAssignmentRead] = Field(default_factory=list)
     assignment_history: List[WorkplaceAssignmentRead] = Field(default_factory=list)
 

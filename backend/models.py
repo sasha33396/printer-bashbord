@@ -215,6 +215,8 @@ class Workplace(Base):
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
     location = Column(String(255), nullable=True)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True)
+    photo_item_id = Column(Integer, ForeignKey("warehouse_items.id", ondelete="SET NULL"), nullable=True, index=True)
+    photo_hash = Column(String(64), nullable=True)
     status = Column(SAEnum(WorkplaceStatus), nullable=False, default=WorkplaceStatus.vacant)
     notes = Column(Text, nullable=True)
 

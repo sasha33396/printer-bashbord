@@ -87,6 +87,20 @@ def initialize_database():
             "ON warehouse_items (serial_number)"
         ))
 
+        workplace_columns = {
+            column["name"] for column in inspect(connection).get_columns("workplaces")
+        }
+        for name, sql_type in (
+            ("photo_item_id", "INTEGER"),
+            ("photo_hash", "VARCHAR(64)"),
+        ):
+            if name not in workplace_columns:
+                connection.execute(text(f"ALTER TABLE workplaces ADD COLUMN {name} {sql_type}"))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_workplaces_photo_item_id "
+            "ON workplaces (photo_item_id)"
+        ))
+
 
 def get_db():
     db = SessionLocal()

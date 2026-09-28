@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button, DatePicker, Empty, Form, Input, Modal, Popconfirm,
   Select, Space, Spin, Table, Tag, Typography, message,
@@ -88,6 +88,95 @@ function AssignmentModal({ open, workplace, onClose, onSaved }) {
   </Modal>
 }
 
+function WorkplacePhotoPicker({ open, workplace, onClose, onSaved }) {
+  const [photos, setPhotos] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(null)
+
+  useEffect(() => {
+    if (!open) return undefined
+    let cancelled = false
+    const objectUrls = []
+    setLoading(true)
+    setPhotos([])
+
+    Promise.all(workplace.current_assets.map(async ({ item }) => {
+      const { data } = await api.get(`/warehouse/items/${item.id}/photos`)
+      return Promise.all(data.map(async (photo) => {
+        const response = await api.get(
+          `/warehouse/items/${item.id}/photos/${encodeURIComponent(photo.filename)}`,
+          { responseType: 'blob' },
+        )
+        const url = URL.createObjectURL(response.data)
+        if (cancelled) URL.revokeObjectURL(url)
+        else objectUrls.push(url)
+        return { item, photo, url }
+      }))
+    }))
+      .then((groups) => {
+        if (!cancelled) setPhotos(groups.flat())
+      })
+      .catch((error) => {
+        if (!cancelled) message.error(apiError(error, 'Не удалось загрузить фотографии оборудования'))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+      objectUrls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [open, workplace])
+
+  const select = async ({ item, photo }) => {
+    setSaving(`${item.id}-${photo.filename}`)
+    try {
+      await api.put(`/workplaces/${workplace.id}/photo`, {
+        item_id: item.id,
+        filename: photo.filename,
+      })
+      message.success('Фото рабочего места выбрано')
+      onSaved()
+    } catch (error) {
+      message.error(apiError(error, 'Не удалось выбрать фотографию'))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return <Modal
+    title="Выбрать фото рабочего места"
+    open={open}
+    onCancel={onClose}
+    footer={null}
+    width={860}
+    destroyOnClose
+  >
+    {loading ? <div className="equipment-photos-loading"><Spin /></div> : photos.length === 0 ? (
+      <Empty description="У привязанного оборудования пока нет фотографий" />
+    ) : (
+      <div className="workplace-photo-options">
+        {photos.map((entry) => {
+          const key = `${entry.item.id}-${entry.photo.filename}`
+          return <button
+            type="button"
+            className="workplace-photo-option"
+            key={key}
+            disabled={Boolean(saving)}
+            onClick={() => select(entry)}
+          >
+            <img src={entry.url} alt={entry.item.name} />
+            <span>{entry.item.name}</span>
+            <small>Инв. № {entry.item.inventory_number || '—'}</small>
+            {saving === key && <Spin size="small" />}
+          </button>
+        })}
+      </div>
+    )}
+  </Modal>
+}
+
 export default function WorkplaceCardPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -96,21 +185,43 @@ export default function WorkplaceCardPage() {
   const [assignmentOpen, setAssignmentOpen] = useState(false)
   const [endingId, setEndingId] = useState(null)
   const [photoItem, setPhotoItem] = useState(null)
+  const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
+  const [workplacePhotoUrl, setWorkplacePhotoUrl] = useState(null)
+  const workplacePhotoUrlRef = useRef(null)
+
+  const replaceWorkplacePhotoUrl = useCallback((url) => {
+    if (workplacePhotoUrlRef.current) URL.revokeObjectURL(workplacePhotoUrlRef.current)
+    workplacePhotoUrlRef.current = url
+    setWorkplacePhotoUrl(url)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const { data } = await api.get(`/workplaces/${id}`)
       setWorkplace(data)
+      if (data.has_photo) {
+        try {
+          const response = await api.get(`/workplaces/${id}/photo`, { responseType: 'blob' })
+          replaceWorkplacePhotoUrl(URL.createObjectURL(response.data))
+        } catch {
+          replaceWorkplacePhotoUrl(null)
+        }
+      } else {
+        replaceWorkplacePhotoUrl(null)
+      }
     } catch (error) {
       message.error(apiError(error, 'Рабочее место не найдено'))
       navigate('/workplaces', { replace: true })
     } finally {
       setLoading(false)
     }
-  }, [id, navigate])
+  }, [id, navigate, replaceWorkplacePhotoUrl])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => () => {
+    if (workplacePhotoUrlRef.current) URL.revokeObjectURL(workplacePhotoUrlRef.current)
+  }, [])
 
   const printLabel = async () => {
     try {
@@ -137,6 +248,17 @@ export default function WorkplaceCardPage() {
       message.error(apiError(error, 'Не удалось снять оборудование'))
     } finally {
       setEndingId(null)
+    }
+  }
+
+  const clearPhoto = async () => {
+    try {
+      await api.delete(`/workplaces/${workplace.id}/photo`)
+      replaceWorkplacePhotoUrl(null)
+      setWorkplace((current) => current ? { ...current, has_photo: false, photo_item_id: null } : current)
+      message.success('Фото рабочего места убрано')
+    } catch (error) {
+      message.error(apiError(error, 'Не удалось убрать фотографию'))
     }
   }
 
@@ -189,6 +311,40 @@ export default function WorkplaceCardPage() {
     <section className="workplace-section">
       <div className="workplace-section-header">
         <div>
+          <h2>Фото рабочего места</h2>
+          <p>Основное фото выбирается из фотографий закреплённого оборудования</p>
+        </div>
+        <Space wrap>
+          {workplacePhotoUrl && (
+            <Popconfirm
+              title="Убрать фото рабочего места?"
+              okText="Убрать"
+              cancelText="Отмена"
+              onConfirm={clearPhoto}
+            >
+              <Button danger>Убрать</Button>
+            </Popconfirm>
+          )}
+          <Button
+            type="primary"
+            icon={<CameraOutlined />}
+            disabled={workplace.current_assets.length === 0}
+            onClick={() => setPhotoPickerOpen(true)}
+          >
+            Выбрать фото
+          </Button>
+        </Space>
+      </div>
+      {workplacePhotoUrl ? (
+        <img className="workplace-cover-photo" src={workplacePhotoUrl} alt={workplace.name} />
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Фото рабочего места не выбрано" />
+      )}
+    </section>
+
+    <section className="workplace-section">
+      <div className="workplace-section-header">
+        <div>
           <h2>Оборудование</h2>
           <p>Системный блок, мониторы и телефон этого рабочего места</p>
         </div>
@@ -235,10 +391,16 @@ export default function WorkplaceCardPage() {
       open={assignmentOpen} workplace={workplace}
       onClose={() => setAssignmentOpen(false)} onSaved={() => { setAssignmentOpen(false); load() }}
     />
+    <WorkplacePhotoPicker
+      open={photoPickerOpen}
+      workplace={workplace}
+      onClose={() => setPhotoPickerOpen(false)}
+      onSaved={() => { setPhotoPickerOpen(false); load() }}
+    />
     <Modal
       title={photoItem ? `Фото: ${photoItem.inventory_number || photoItem.name}` : 'Фотографии'}
       open={Boolean(photoItem)}
-      onCancel={() => setPhotoItem(null)}
+      onCancel={() => { setPhotoItem(null); load() }}
       footer={null}
       width={860}
       destroyOnClose

@@ -309,6 +309,66 @@ body {
   grid-column: span 2;
 }
 
+.workplace-cover-photo {
+  display: block;
+  width: 100%;
+  max-width: 820px;
+  max-height: 520px;
+  margin: 0 auto;
+  object-fit: contain;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.workplace-photo-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.workplace-photo-option {
+  display: flex;
+  min-width: 0;
+  padding: 8px;
+  color: #111827;
+  text-align: left;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.workplace-photo-option:hover:not(:disabled) {
+  border-color: #1677ff;
+  box-shadow: 0 3px 12px rgba(22, 119, 255, 0.12);
+}
+
+.workplace-photo-option:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.workplace-photo-option img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: #f3f4f6;
+  border-radius: 7px;
+}
+
+.workplace-photo-option span {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.workplace-photo-option small {
+  color: #6b7280;
+}
+
 .inventory-workplace-link {
   height: auto;
   padding: 0;
@@ -588,6 +648,11 @@ body {
   }
 
   .equipment-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .workplace-photo-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }

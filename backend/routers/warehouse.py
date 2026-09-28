@@ -16,12 +16,12 @@ from inventory_numbers import (
 )
 from models import (
     Branch, Department, StockMovement, StockMovementType,
-    WarehouseItem, WorkplaceAssetAssignment,
+    WarehouseItem, Workplace, WorkplaceAssetAssignment,
 )
 from routers.auth import get_current_user
 from photo_storage import (
     IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
-    delete_photo_directory, image_extension,
+    delete_photo_directory, image_extension, photo_digest,
     next_photo_filename, normalize_photo_filenames,
     photo_directory, photo_file, photo_files,
 )
@@ -339,12 +339,26 @@ def delete_item_photo(
         raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
     if not path.is_file() or path.is_symlink():
         raise HTTPException(status_code=404, detail="Фотография не найдена")
+    removed_digest = photo_digest(path)
     path.unlink()
     directory = path.parent
     if not any(directory.iterdir()):
         directory.rmdir()
     else:
         normalize_photo_filenames(item.inventory_number)
+    digest_still_exists = any(
+        photo_digest(candidate) == removed_digest
+        for candidate in photo_files(item.inventory_number)
+    )
+    if not digest_still_exists:
+        db.query(Workplace).filter(
+            Workplace.photo_item_id == item.id,
+            Workplace.photo_hash == removed_digest,
+        ).update({
+            Workplace.photo_item_id: None,
+            Workplace.photo_hash: None,
+        }, synchronize_session=False)
+        db.commit()
 
 
 @router.post("/items", response_model=WarehouseItemRead, status_code=status.HTTP_201_CREATED)

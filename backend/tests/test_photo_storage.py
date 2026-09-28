@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from photo_storage import image_extension, inventory_folder_name, normalize_photo_filenames
+from photo_storage import (
+    image_extension, inventory_folder_name, normalize_photo_filenames, photo_digest,
+)
 
 
 class PhotoStorageTests(unittest.TestCase):
@@ -38,6 +40,16 @@ class PhotoStorageTests(unittest.TestCase):
                 [path.name for path in result],
                 ["1-00001_0001.jpg", "1-00001_0002.png"],
             )
+
+    def test_photo_digest_stays_the_same_after_rename(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / "photo.jpg"
+            source.write_bytes(b"same photo content")
+            before = photo_digest(source)
+            target = source.with_name("1-00001_0001.jpg")
+            source.rename(target)
+
+            self.assertEqual(photo_digest(target), before)
 
 
 if __name__ == "__main__":

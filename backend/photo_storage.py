@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import hashlib
 from uuid import uuid4
 from pathlib import Path
 from urllib.parse import quote
@@ -52,6 +53,14 @@ def image_extension(header: bytes) -> str | None:
     if len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP":
         return ".webp"
     return None
+
+
+def photo_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def photo_files(inventory_number: str) -> list[Path]:

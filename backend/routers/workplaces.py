@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -9,10 +10,12 @@ from models import (
     Branch, Department, Employee, WarehouseItem, Workplace,
     WorkplaceAssetAssignment, WorkplaceStatus,
 )
+from photo_storage import IMAGE_TYPES, photo_digest, photo_file, photo_files
 from routers.auth import get_current_user
 from schemas import (
     WorkplaceAssignmentCreate, WorkplaceAssignmentEnd, WorkplaceAssignmentRead,
-    WorkplaceAssetBrief, WorkplaceCreate, WorkplaceRead, WorkplaceUpdate,
+    WorkplaceAssetBrief, WorkplaceCreate, WorkplacePhotoSelect, WorkplaceRead,
+    WorkplaceUpdate,
 )
 
 router = APIRouter()
@@ -59,6 +62,8 @@ def _read(workplace: Workplace) -> WorkplaceRead:
         location=workplace.location,
         status=workplace.status,
         notes=workplace.notes,
+        photo_item_id=workplace.photo_item_id,
+        has_photo=bool(workplace.photo_item_id and workplace.photo_hash),
         current_assets=current,
         assignment_history=workplace.assignments,
     )
@@ -128,6 +133,89 @@ def available_assets(db: Session = Depends(get_db), _: dict = _auth):
 @router.get("/{workplace_id}", response_model=WorkplaceRead)
 def get_workplace(workplace_id: int, db: Session = Depends(get_db), _: dict = _auth):
     return _read(_get(db, workplace_id))
+
+
+def _selected_photo(db: Session, workplace: Workplace):
+    if not workplace.photo_item_id or not workplace.photo_hash:
+        return None
+    assignment = db.query(WorkplaceAssetAssignment.id).filter(
+        WorkplaceAssetAssignment.workplace_id == workplace.id,
+        WorkplaceAssetAssignment.item_id == workplace.photo_item_id,
+        WorkplaceAssetAssignment.ended_at.is_(None),
+    ).first()
+    item = db.get(WarehouseItem, workplace.photo_item_id)
+    if not assignment or not item or not item.inventory_number:
+        return None
+    for path in photo_files(item.inventory_number):
+        if photo_digest(path) == workplace.photo_hash:
+            return path
+    return None
+
+
+def _clear_photo(workplace: Workplace) -> None:
+    workplace.photo_item_id = None
+    workplace.photo_hash = None
+
+
+@router.get("/{workplace_id}/photo")
+def get_workplace_photo(
+    workplace_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    workplace = _get(db, workplace_id)
+    path = _selected_photo(db, workplace)
+    if not path:
+        if workplace.photo_item_id or workplace.photo_hash:
+            _clear_photo(workplace)
+            db.commit()
+        raise HTTPException(status_code=404, detail="Фото рабочего места не найдено")
+    return FileResponse(
+        path,
+        media_type=IMAGE_TYPES[path.suffix.lower()],
+        headers={"Cache-Control": "private, no-cache"},
+    )
+
+
+@router.put("/{workplace_id}/photo", response_model=WorkplaceRead)
+def select_workplace_photo(
+    workplace_id: int,
+    payload: WorkplacePhotoSelect,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    workplace = _get(db, workplace_id)
+    assignment = db.query(WorkplaceAssetAssignment.id).filter(
+        WorkplaceAssetAssignment.workplace_id == workplace.id,
+        WorkplaceAssetAssignment.item_id == payload.item_id,
+        WorkplaceAssetAssignment.ended_at.is_(None),
+    ).first()
+    if not assignment:
+        raise HTTPException(status_code=422, detail="Оборудование не закреплено за этим рабочим местом")
+    item = db.get(WarehouseItem, payload.item_id)
+    if not item or not item.inventory_number:
+        raise HTTPException(status_code=422, detail="У оборудования нет инвентарного номера")
+    try:
+        path = photo_file(item.inventory_number, payload.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    workplace.photo_item_id = item.id
+    workplace.photo_hash = photo_digest(path)
+    db.commit()
+    return _read(_get(db, workplace.id))
+
+
+@router.delete("/{workplace_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
+def clear_workplace_photo(
+    workplace_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    workplace = _get(db, workplace_id)
+    _clear_photo(workplace)
+    db.commit()
 
 
 @router.post("", response_model=WorkplaceRead, status_code=status.HTTP_201_CREATED)
@@ -260,6 +348,9 @@ def end_assignment(
         assignment.notes = _text(payload.notes)
     assignment.item.placement = "Склад/серверная"
     assignment.item.condition = "На складе"
+    workplace = db.get(Workplace, assignment.workplace_id)
+    if workplace and workplace.photo_item_id == assignment.item_id:
+        _clear_photo(workplace)
     db.commit()
     db.refresh(assignment)
     return assignment
