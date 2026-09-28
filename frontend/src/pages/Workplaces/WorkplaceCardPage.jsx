@@ -186,6 +186,7 @@ export default function WorkplaceCardPage() {
   const [endingId, setEndingId] = useState(null)
   const [photoItem, setPhotoItem] = useState(null)
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
+  const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false)
   const [workplacePhotoUrl, setWorkplacePhotoUrl] = useState(null)
   const workplacePhotoUrlRef = useRef(null)
 
@@ -254,6 +255,7 @@ export default function WorkplaceCardPage() {
   const clearPhoto = async () => {
     try {
       await api.delete(`/workplaces/${workplace.id}/photo`)
+      setPhotoPreviewOpen(false)
       replaceWorkplacePhotoUrl(null)
       setWorkplace((current) => current ? { ...current, has_photo: false, photo_item_id: null } : current)
       message.success('Фото рабочего места убрано')
@@ -280,16 +282,51 @@ export default function WorkplaceCardPage() {
 
     <section className="workplace-main-card">
       <header className="inventory-detail-header">
-        <div className="inventory-detail-heading">
-          <div className="inventory-detail-title-row">
-            <h1>{workplace.name}</h1>
-            <span className="inventory-category-badge">Рабочее место</span>
-          </div>
-          <div className="inventory-detail-summary">
-            <span className={`workplace-status-dot-label workplace-status-${workplace.status}`}>
-              <span className="inventory-status-dot" />{status.label}
-            </span>
-            <span><span className="inventory-summary-label">Оборудование</span> {workplace.current_assets.length}</span>
+        <div className="workplace-profile">
+          <button
+            type="button"
+            className={workplacePhotoUrl ? 'workplace-avatar workplace-avatar-filled' : 'workplace-avatar'}
+            onClick={() => workplacePhotoUrl ? setPhotoPreviewOpen(true) : setPhotoPickerOpen(true)}
+            disabled={!workplacePhotoUrl && workplace.current_assets.length === 0}
+            title={workplacePhotoUrl ? 'Открыть фотографию' : 'Выбрать фотографию'}
+            aria-label={workplacePhotoUrl ? 'Открыть фотографию рабочего места' : 'Выбрать фотографию рабочего места'}
+          >
+            {workplacePhotoUrl
+              ? <img src={workplacePhotoUrl} alt="" />
+              : <CameraOutlined />}
+          </button>
+          <div className="inventory-detail-heading">
+            <div className="inventory-detail-title-row">
+              <h1>{workplace.name}</h1>
+              <span className="inventory-category-badge">Рабочее место</span>
+            </div>
+            <div className="inventory-detail-summary">
+              <span className={`workplace-status-dot-label workplace-status-${workplace.status}`}>
+                <span className="inventory-status-dot" />{status.label}
+              </span>
+              <span><span className="inventory-summary-label">Оборудование</span> {workplace.current_assets.length}</span>
+            </div>
+            <Space className="workplace-avatar-actions" size={6} wrap>
+              <Button
+                size="small"
+                type="text"
+                icon={<CameraOutlined />}
+                disabled={workplace.current_assets.length === 0}
+                onClick={() => setPhotoPickerOpen(true)}
+              >
+                {workplacePhotoUrl ? 'Изменить фото' : 'Выбрать фото'}
+              </Button>
+              {workplacePhotoUrl && (
+                <Popconfirm
+                  title="Убрать фото рабочего места?"
+                  okText="Убрать"
+                  cancelText="Отмена"
+                  onConfirm={clearPhoto}
+                >
+                  <Button size="small" type="text" danger>Убрать</Button>
+                </Popconfirm>
+              )}
+            </Space>
           </div>
         </div>
         <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать штрихкод</Button>
@@ -306,40 +343,6 @@ export default function WorkplaceCardPage() {
         <DetailField label="E-mail" value={workplace.employee?.email} />
         <DetailField label="Примечание" value={workplace.notes} />
       </div>
-    </section>
-
-    <section className="workplace-section">
-      <div className="workplace-section-header">
-        <div>
-          <h2>Фото рабочего места</h2>
-          <p>Основное фото выбирается из фотографий закреплённого оборудования</p>
-        </div>
-        <Space wrap>
-          {workplacePhotoUrl && (
-            <Popconfirm
-              title="Убрать фото рабочего места?"
-              okText="Убрать"
-              cancelText="Отмена"
-              onConfirm={clearPhoto}
-            >
-              <Button danger>Убрать</Button>
-            </Popconfirm>
-          )}
-          <Button
-            type="primary"
-            icon={<CameraOutlined />}
-            disabled={workplace.current_assets.length === 0}
-            onClick={() => setPhotoPickerOpen(true)}
-          >
-            Выбрать фото
-          </Button>
-        </Space>
-      </div>
-      {workplacePhotoUrl ? (
-        <img className="workplace-cover-photo" src={workplacePhotoUrl} alt={workplace.name} />
-      ) : (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Фото рабочего места не выбрано" />
-      )}
     </section>
 
     <section className="workplace-section">
@@ -397,6 +400,16 @@ export default function WorkplaceCardPage() {
       onClose={() => setPhotoPickerOpen(false)}
       onSaved={() => { setPhotoPickerOpen(false); load() }}
     />
+    <Modal
+      title={`Фото рабочего места: ${workplace.name}`}
+      open={photoPreviewOpen}
+      onCancel={() => setPhotoPreviewOpen(false)}
+      footer={null}
+      width={900}
+      destroyOnClose
+    >
+      {workplacePhotoUrl && <img className="workplace-photo-preview" src={workplacePhotoUrl} alt={workplace.name} />}
+    </Modal>
     <Modal
       title={photoItem ? `Фото: ${photoItem.inventory_number || photoItem.name}` : 'Фотографии'}
       open={Boolean(photoItem)}
