@@ -76,7 +76,7 @@ function AssignmentModal({ open, workplace, onClose, onSaved }) {
           placeholder="Свободное оборудование с поштучным учётом"
           options={assets.map((item) => ({
             value: item.id,
-            label: `${item.category} · ${item.inventory_number || 'без №'} · ${item.manufacturer || ''} ${item.model || item.name}`.trim(),
+            label: `${item.category} · ${item.inventory_number || 'без №'} · ${item.name}`,
           }))}
         />
       </Form.Item>
