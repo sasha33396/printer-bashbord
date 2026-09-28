@@ -1,5 +1,7 @@
 import os
+import re
 import shutil
+from uuid import uuid4
 from pathlib import Path
 from urllib.parse import quote
 
@@ -75,6 +77,40 @@ def photo_file(inventory_number: str, filename: str) -> Path:
     return path
 
 
+def normalize_photo_filenames(inventory_number: str) -> list[Path]:
+    directory = photo_directory(inventory_number)
+    files = sorted(photo_files(inventory_number), key=lambda path: (path.stat().st_mtime, path.name))
+    if not files:
+        return []
+
+    temporary: list[tuple[Path, str]] = []
+    for path in files:
+        extension = ".jpg" if path.suffix.lower() in {".jpg", ".jpeg"} else path.suffix.lower()
+        temp_path = directory / f".{uuid4().hex}.tmp"
+        path.rename(temp_path)
+        temporary.append((temp_path, extension))
+
+    result = []
+    for index, (temp_path, extension) in enumerate(temporary, start=1):
+        target = directory / f"{inventory_number}_{index:04d}{extension}"
+        temp_path.rename(target)
+        result.append(target)
+    return result
+
+
+def next_photo_filename(inventory_number: str, extension: str) -> str:
+    pattern = re.compile(
+        rf"^{re.escape(inventory_number)}_(\d{{4}})\.(?:jpe?g|png|webp)$",
+        re.IGNORECASE,
+    )
+    indexes = []
+    for path in photo_files(inventory_number):
+        match = pattern.fullmatch(path.name)
+        if match:
+            indexes.append(int(match.group(1)))
+    return f"{inventory_number}_{max(indexes, default=0) + 1:04d}{extension}"
+
+
 def move_photo_directory(old_inventory_number: str, new_inventory_number: str) -> bool:
     old_directory = photo_directory(old_inventory_number)
     new_directory = photo_directory(new_inventory_number)
@@ -84,6 +120,7 @@ def move_photo_directory(old_inventory_number: str, new_inventory_number: str) -
         raise FileExistsError("Каталог нового инвентарного номера уже существует")
     new_directory.parent.mkdir(parents=True, exist_ok=True)
     old_directory.rename(new_directory)
+    normalize_photo_filenames(new_inventory_number)
     return True
 
 

@@ -9,6 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
+from inventory_numbers import (
+    inventory_number_lock, inventory_number_owner, next_inventory_number,
+    require_inventory_number,
+)
 from network import normalize_ip_address
 from printer_counter import read_counter
 from models import Branch, Department, Device, DeviceType, DeviceStatus
@@ -128,14 +132,19 @@ def create_device(
     db: Session = Depends(get_db),
     _: dict = _auth,
 ):
-    if db.query(Device).filter(Device.inventory_number == payload.inventory_number).first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Inventory number '{payload.inventory_number}' already exists",
-        )
-    device = Device(**payload.model_dump())
-    db.add(device)
-    db.commit()
+    data = payload.model_dump()
+    try:
+        requested_number = require_inventory_number(data["inventory_number"]) if data["inventory_number"] else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with inventory_number_lock:
+        inventory_number = requested_number or next_inventory_number(db)
+        if inventory_number_owner(db, inventory_number):
+            raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
+        data["inventory_number"] = inventory_number
+        device = Device(**data)
+        db.add(device)
+        db.commit()
     db.refresh(device)
     return db.get(Device, device.id)
 
@@ -209,14 +218,19 @@ def import_devices(
 
     for row_num, row in enumerate(data_rows, start=2):
         inv = _cell(row, 0)
-        if not inv:
-            skipped += 1
-            continue
-
-        # Пропускаем дубликаты по инвентарному номеру
-        if db.query(Device.id).filter(Device.inventory_number == inv).scalar():
-            skipped += 1
-            continue
+        auto_inventory_number = not inv
+        if inv:
+            try:
+                inv = require_inventory_number(inv)
+            except ValueError as exc:
+                errors.append(f"Строка {row_num}: {exc}")
+                skipped += 1
+                continue
+            if inventory_number_owner(db, inv):
+                skipped += 1
+                continue
+        else:
+            inv = None
 
         manufacturer = _cell(row, 2)
         model_name = _cell(row, 3)
@@ -285,9 +299,8 @@ def import_devices(
             skipped += 1
             continue
 
-        device = Device(
+        device_data = dict(
             ip_address=ip_value,
-            inventory_number=inv,
             serial_number=_cell(row, 1),
             manufacturer=manufacturer,
             model=model_name,
@@ -299,7 +312,15 @@ def import_devices(
             status=device_status,
             notes=_cell(row, 11),
         )
-        db.add(device)
+        if auto_inventory_number:
+            with inventory_number_lock:
+                device = Device(inventory_number=next_inventory_number(db), **device_data)
+                db.add(device)
+                db.flush()
+        else:
+            device = Device(inventory_number=inv, **device_data)
+            db.add(device)
+            db.flush()
         created += 1
 
     db.commit()
@@ -332,11 +353,10 @@ def update_device(
         device.page_counter = None
         device.counter_checked_at = None
     if "inventory_number" in data and data["inventory_number"] != device.inventory_number:
-        if db.query(Device.id).filter(Device.inventory_number == data["inventory_number"]).scalar():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Inventory number '{data['inventory_number']}' already exists",
-            )
+        raise HTTPException(
+            status_code=409,
+            detail="Инвентарный номер назначается автоматически и не редактируется",
+        )
     for field, value in data.items():
         setattr(device, field, value)
     db.commit()

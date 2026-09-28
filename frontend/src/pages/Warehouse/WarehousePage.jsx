@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AutoComplete, Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, message,
+  Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, Upload, message,
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
-  BarcodeOutlined, PlusOutlined,
+  BarcodeOutlined, DownloadOutlined, PlusOutlined, UploadOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -148,8 +148,11 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
           </Col>
           {trackingType === 'asset' && <>
             <Col span={12}>
-              <Form.Item name="inventory_number" label="Инвентарный №" rules={[{ required: true, message: 'Укажите инвентарный номер' }]}>
-                <Input />
+              <Form.Item label="Инвентарный №">
+                <Input
+                  value={editing?.inventory_number || 'Присвоится автоматически'}
+                  disabled
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -381,6 +384,8 @@ export default function WarehousePage() {
   const [editing, setEditing] = useState(null)
   const [movement, setMovement] = useState(null)
   const [historyItem, setHistoryItem] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -474,6 +479,56 @@ export default function WarehousePage() {
     } catch (err) {
       message.error(apiErrorMessage(err, 'Не удалось удалить позицию'))
     }
+  }
+
+  const exportArchive = async () => {
+    setExporting(true)
+    try {
+      const response = await api.get('/inventory/archive', { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `inventory_export_${dayjs().format('YYYYMMDD-HHmmss')}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      message.success('Архив инвентаря сформирован')
+    } catch (err) {
+      message.error(apiErrorMessage(err, 'Не удалось экспортировать архив'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const importArchive = async (file) => {
+    setImporting(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post('/inventory/archive', form)
+      const summaryText = `Создано: ${data.created}, обновлено: ${data.updated}, фотографий: ${data.photos}`
+      if (data.errors?.length) {
+        Modal.warning({
+          title: 'Импорт завершён с замечаниями',
+          content: <Space direction="vertical" size={8}>
+            <Typography.Text>{summaryText}</Typography.Text>
+            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+              {data.errors.map((error, index) => <div key={`${index}-${error}`}>{error}</div>)}
+            </div>
+          </Space>,
+          width: 680,
+        })
+      } else {
+        message.success(`Импорт завершён. ${summaryText}`)
+      }
+      await load()
+    } catch (err) {
+      message.error(apiErrorMessage(err, 'Не удалось импортировать архив'))
+    } finally {
+      setImporting(false)
+    }
+    return Upload.LIST_IGNORE
   }
 
   const printItem = async (item) => {
@@ -618,6 +673,21 @@ export default function WarehousePage() {
           style={{ width: 190 }}
         />
         <div className="toolbar-actions">
+          <Button icon={<DownloadOutlined />} loading={exporting} onClick={exportArchive}>
+            Экспорт архива
+          </Button>
+          <Upload
+            accept=".zip,application/zip"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              importArchive(file)
+              return Upload.LIST_IGNORE
+            }}
+          >
+            <Button icon={<UploadOutlined />} loading={importing} disabled={importing}>
+              Импорт архива
+            </Button>
+          </Upload>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>
             Добавить позицию
           </Button>

@@ -77,7 +77,7 @@ class DepartmentRead(BaseModel):
 
 class DeviceCreate(BaseModel):
     ip_address: IPAddress = None
-    inventory_number: str
+    inventory_number: Optional[str] = None
     serial_number: Optional[str] = None
     manufacturer: str
     model: str

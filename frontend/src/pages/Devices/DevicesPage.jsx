@@ -156,12 +156,11 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item
-              name="inventory_number"
-              label="Инв. номер"
-              rules={[{ required: true, message: 'Обязательное поле' }]}
-            >
-              <Input />
+            <Form.Item label="Инв. номер">
+              <Input
+                value={editing?.inventory_number || 'Присвоится автоматически'}
+                disabled
+              />
             </Form.Item>
           </Col>
           <Col span={12}>
