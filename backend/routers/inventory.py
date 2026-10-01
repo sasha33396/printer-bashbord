@@ -18,7 +18,7 @@ from database import get_db
 from inventory_numbers import inventory_number_lock, inventory_number_owner, require_inventory_number
 from models import (
     Branch, ConsumableLog, Department, Device, DeviceStatus, DeviceType,
-    ItemType, Manufacturer, RepairRecord, RepairStatus, RepairType, StockMovement,
+    ItemType, Manufacturer, RepairRecord, RepairStatus, RepairType, RepairWorkItem, StockMovement,
     StockMovementType, WarehouseItem, WorkplaceAssetAssignment,
 )
 from photo_storage import (
@@ -104,12 +104,23 @@ def _device_card(device: Device) -> dict:
                     "date": _date_value(record.date),
                     "repair_type": _enum_value(record.repair_type),
                     "repair_status": _enum_value(record.repair_status),
+                    "task_date": _date_value(record.task_date),
+                    "task_url": record.task_url,
+                    "source_location": record.source_location,
+                    "responsible_person": record.responsible_person,
+                    "returned_date": _date_value(record.returned_date),
+                    "connected_date": _date_value(record.connected_date),
                     "description": record.description,
                     "contractor": record.contractor,
                     "cost": record.cost,
                     "page_counter": record.page_counter,
                     "completion_page_counter": record.completion_page_counter,
                     "page_counter_delta": record.page_counter_delta,
+                    "invoice_name": record.invoice_name,
+                    "work_items": [
+                        {"description": item.description, "cost": item.cost}
+                        for item in record.work_items
+                    ],
                     "notes": record.notes,
                 }
                 for record in device.repair_records
@@ -224,7 +235,7 @@ def export_inventory_archive(db: Session = Depends(get_db), _: dict = _auth):
         db.query(Device)
         .options(
             joinedload(Device.department).joinedload(Department.branch),
-            joinedload(Device.repair_records),
+            joinedload(Device.repair_records).joinedload(RepairRecord.work_items),
             joinedload(Device.consumable_logs),
         )
         .order_by(Device.inventory_number)
@@ -336,19 +347,34 @@ def _import_device(db: Session, inventory_number: str, data: dict) -> str:
 
     if is_new:
         for record in data.get("repairs") or []:
-            db.add(RepairRecord(
+            repair = RepairRecord(
                 device_id=device.id,
                 date=_parse_optional_date(record.get("date")) or date.today(),
                 repair_type=RepairType(record.get("repair_type") or RepairType.unplanned.value),
                 repair_status=RepairStatus(record.get("repair_status") or RepairStatus.completed.value),
+                task_date=_parse_optional_date(record.get("task_date")),
+                task_url=record.get("task_url"),
+                source_location=record.get("source_location"),
+                responsible_person=record.get("responsible_person"),
+                returned_date=_parse_optional_date(record.get("returned_date")),
+                connected_date=_parse_optional_date(record.get("connected_date")),
                 description=record.get("description") or "Импортированная запись",
                 contractor=record.get("contractor"),
                 cost=record.get("cost") or 0,
                 page_counter=record.get("page_counter"),
                 completion_page_counter=record.get("completion_page_counter"),
                 page_counter_delta=record.get("page_counter_delta"),
+                invoice_name=None,
                 notes=record.get("notes"),
-            ))
+            )
+            db.add(repair)
+            db.flush()
+            for item in record.get("work_items") or []:
+                db.add(RepairWorkItem(
+                    repair_id=repair.id,
+                    description=item.get("description") or "Выполненная работа",
+                    cost=item.get("cost") or 0,
+                ))
         for record in data.get("consumables") or []:
             db.add(ConsumableLog(
                 device_id=device.id,

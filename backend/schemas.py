@@ -149,15 +149,36 @@ class InventoryLookupRead(BaseModel):
 # RepairRecord
 # ---------------------------------------------------------------------------
 
+class RepairWorkItemInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    description: str = Field(min_length=1)
+    cost: float = Field(default=0.0, ge=0)
+
+
+class RepairWorkItemRead(RepairWorkItemInput):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
 class RepairRecordCreate(BaseModel):
     device_id: int
     date: Date
     repair_type: RepairType
     repair_status: RepairStatus = RepairStatus.in_progress
+    task_date: Optional[Date] = None
+    task_url: Optional[str] = Field(default=None, max_length=1000)
+    source_location: Optional[str] = Field(default=None, max_length=500)
+    responsible_person: Optional[str] = Field(default=None, max_length=255)
+    returned_date: Optional[Date] = None
+    connected_date: Optional[Date] = None
     description: str
     contractor: Optional[str] = None
-    cost: float = 0.0
+    cost: float = Field(default=0.0, ge=0)
     page_counter: Optional[int] = None
+    completion_page_counter: Optional[int] = Field(default=None, ge=0)
+    work_items: List[RepairWorkItemInput] = Field(default_factory=list)
     notes: Optional[str] = None
 
 
@@ -166,10 +187,18 @@ class RepairRecordUpdate(BaseModel):
     date: Optional[Date] = None
     repair_type: Optional[RepairType] = None
     repair_status: Optional[RepairStatus] = None
+    task_date: Optional[Date] = None
+    task_url: Optional[str] = Field(default=None, max_length=1000)
+    source_location: Optional[str] = Field(default=None, max_length=500)
+    responsible_person: Optional[str] = Field(default=None, max_length=255)
+    returned_date: Optional[Date] = None
+    connected_date: Optional[Date] = None
     description: Optional[str] = None
     contractor: Optional[str] = None
-    cost: Optional[float] = None
+    cost: Optional[float] = Field(default=None, ge=0)
     page_counter: Optional[int] = None
+    completion_page_counter: Optional[int] = Field(default=None, ge=0)
+    work_items: Optional[List[RepairWorkItemInput]] = None
     notes: Optional[str] = None
 
 
@@ -182,12 +211,20 @@ class RepairRecordRead(BaseModel):
     date: Date
     repair_type: RepairType
     repair_status: RepairStatus
+    task_date: Optional[Date] = None
+    task_url: Optional[str] = None
+    source_location: Optional[str] = None
+    responsible_person: Optional[str] = None
+    returned_date: Optional[Date] = None
+    connected_date: Optional[Date] = None
     description: str
     contractor: Optional[str] = None
     cost: float
     page_counter: Optional[int] = None
     completion_page_counter: Optional[int] = None
     page_counter_delta: Optional[int] = None
+    invoice_name: Optional[str] = None
+    work_items: List[RepairWorkItemRead] = Field(default_factory=list)
     notes: Optional[str] = None
 
 

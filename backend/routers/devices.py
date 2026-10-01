@@ -25,6 +25,7 @@ from photo_storage import (
     photo_directory, photo_file, photo_files,
 )
 from printer_counter import read_counter
+from repair_invoice_storage import delete_invoice
 from models import Branch, Department, Device, DeviceType, DeviceStatus
 from routers.auth import get_current_user
 from schemas import DeviceCreate, DeviceUpdate, DeviceRead, EquipmentPhotoRead
@@ -575,6 +576,9 @@ def delete_device(
 ):
     device = _get_or_404(db, device_id)
     inventory_number = device.inventory_number
+    repair_ids = [record.id for record in device.repair_records]
     db.delete(device)
     db.commit()
     delete_photo_directory(inventory_number)
+    for repair_id in repair_ids:
+        delete_invoice(repair_id)

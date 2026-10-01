@@ -35,6 +35,13 @@ def initialize_database():
             ("repair_status", "VARCHAR(20) NOT NULL DEFAULT 'completed'"),
             ("completion_page_counter", "INTEGER"),
             ("page_counter_delta", "INTEGER"),
+            ("task_date", "DATE"),
+            ("task_url", "VARCHAR(1000)"),
+            ("source_location", "VARCHAR(500)"),
+            ("responsible_person", "VARCHAR(255)"),
+            ("returned_date", "DATE"),
+            ("connected_date", "DATE"),
+            ("invoice_name", "VARCHAR(500)"),
         ):
             if name not in repair_columns:
                 connection.execute(text(f"ALTER TABLE repair_records ADD COLUMN {name} {sql_type}"))
