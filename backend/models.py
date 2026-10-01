@@ -248,6 +248,8 @@ class Workplace(Base):
     photo_hash = Column(String(64), nullable=True)
     status = Column(SAEnum(WorkplaceStatus), nullable=False, default=WorkplaceStatus.vacant)
     notes = Column(Text, nullable=True)
+    is_archived = Column(Boolean, nullable=False, default=False, index=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     branch = relationship("Branch")
     department = relationship("Department")

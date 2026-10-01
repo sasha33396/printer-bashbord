@@ -534,6 +534,8 @@ class WorkplaceRead(BaseModel):
     notes: Optional[str] = None
     photo_item_id: Optional[int] = None
     has_photo: bool = False
+    is_archived: bool = False
+    archived_at: Optional[DateTime] = None
     current_assets: List[WorkplaceAssignmentRead] = Field(default_factory=list)
     assignment_history: List[WorkplaceAssignmentRead] = Field(default_factory=list)
 

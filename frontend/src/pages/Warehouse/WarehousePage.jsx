@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
-  BarcodeOutlined, DownloadOutlined, PlusOutlined, UndoOutlined, UploadOutlined,
+  BarcodeOutlined, DownloadOutlined, InboxOutlined, PlusOutlined, UndoOutlined, UploadOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -401,7 +401,7 @@ function HistoryModal({ item, open, onClose, onChanged }) {
   )
 }
 
-export default function WarehousePage() {
+export default function WarehousePage({ archiveOnly = false }) {
   const navigate = useNavigate()
   const [items, setItems] = useState([])
   const [devices, setDevices] = useState([])
@@ -413,7 +413,7 @@ export default function WarehousePage() {
   const [category, setCategory] = useState()
   const [branchId, setBranchId] = useState()
   const [departmentId, setDepartmentId] = useState()
-  const [archiveMode, setArchiveMode] = useState(false)
+  const archiveMode = archiveOnly
   const [itemModal, setItemModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [movement, setMovement] = useState(null)
@@ -722,7 +722,9 @@ export default function WarehousePage() {
   return (
     <>
       <div className="page-toolbar" style={{ marginBottom: 18 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>Оборудование</Typography.Title>
+        <Typography.Title level={3} style={{ margin: 0 }}>
+          {archiveMode ? 'Архив оборудования' : 'Оборудование'}
+        </Typography.Title>
         <Input.Search
           placeholder="Инв. №, наименование, IP, MAC"
           allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }}
@@ -737,17 +739,16 @@ export default function WarehousePage() {
           onChange={setDepartmentId} options={filterDepartments.map((item) => ({ value: item.id, label: item.name }))}
           style={{ width: 190 }}
         />
-        <Select
-          value={archiveMode ? 'archive' : 'active'}
-          onChange={(value) => { setArchiveMode(value === 'archive'); setCategory(undefined) }}
-          options={[{ value: 'active', label: 'Действующее' }, { value: 'archive', label: 'Архив' }]}
-          style={{ width: 150 }}
-        />
         <div className="toolbar-actions">
+          {archiveMode ? (
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/warehouse')}>К оборудованию</Button>
+          ) : (
+            <Button icon={<InboxOutlined />} onClick={() => navigate('/warehouse/archive')}>Архив</Button>
+          )}
           <Button icon={<DownloadOutlined />} loading={exporting} onClick={exportArchive}>
             Экспорт архива
           </Button>
-          <Upload
+          {!archiveMode && <Upload
             accept=".zip,application/zip"
             showUploadList={false}
             beforeUpload={(file) => {
@@ -758,14 +759,14 @@ export default function WarehousePage() {
             <Button icon={<UploadOutlined />} loading={importing} disabled={importing}>
               Импорт архива
             </Button>
-          </Upload>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>
+          </Upload>}
+          {!archiveMode && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>
             Добавить позицию
-          </Button>
+          </Button>}
         </div>
       </div>
 
-      <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+      {!archiveMode && <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
         {summary.map((row) => (
           <Col xs={12} sm={8} lg={4} key={row.category}>
             <Card
@@ -779,9 +780,19 @@ export default function WarehousePage() {
             </Card>
           </Col>
         ))}
-      </Row>
+      </Row>}
 
-      {!category ? (
+      {archiveMode ? (
+        <Card title="Архивные позиции">
+          {filteredItems.length === 0 && !loading ? <Empty description="Архив пуст" /> : (
+            <Table
+              rowKey="id" dataSource={filteredItems} columns={genericColumns} loading={loading}
+              size="small" scroll={{ x: 'max-content' }}
+              pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (total) => `Позиций: ${total}` }}
+            />
+          )}
+        </Card>
+      ) : !category ? (
         <Card title="Общий вид">
           <Table
             rowKey="category" loading={loading} pagination={false} size="small" dataSource={summary}

@@ -109,6 +109,7 @@ function AppLayout() {
             <Route path="/devices/:id" element={<PrivateRoute><DeviceCardPage /></PrivateRoute>} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/warehouse" element={<PrivateRoute><WarehousePage /></PrivateRoute>} />
+            <Route path="/warehouse/archive" element={<PrivateRoute><WarehousePage archiveOnly /></PrivateRoute>} />
             <Route path="/warehouse/items/:id" element={<PrivateRoute><WarehouseItemPage /></PrivateRoute>} />
             <Route path="/workplaces" element={<PrivateRoute><WorkplacesPage /></PrivateRoute>} />
             <Route path="/workplaces/:id" element={<PrivateRoute><WorkplaceCardPage /></PrivateRoute>} />

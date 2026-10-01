@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -67,6 +67,8 @@ def _read(workplace: Workplace) -> WorkplaceRead:
         notes=workplace.notes,
         photo_item_id=workplace.photo_item_id,
         has_photo=bool(workplace.photo_item_id and workplace.photo_hash),
+        is_archived=workplace.is_archived,
+        archived_at=workplace.archived_at,
         current_assets=current,
         assignment_history=workplace.assignments,
     )
@@ -113,7 +115,13 @@ def _actual_status(value: WorkplaceStatus, employee_id: Optional[int]) -> Workpl
 
 @router.get("", response_model=List[WorkplaceRead])
 def list_workplaces(db: Session = Depends(get_db), _: dict = _auth):
-    return [_read(item) for item in _query(db).order_by(Workplace.name).all()]
+    return [
+        _read(item)
+        for item in _query(db)
+        .filter(Workplace.is_archived.is_(False))
+        .order_by(Workplace.name)
+        .all()
+    ]
 
 
 @router.get("/available-assets", response_model=List[WorkplaceAssetBrief])
@@ -168,6 +176,8 @@ def transfer_asset(
     if not item or item.tracking_type != "asset" or item.is_archived:
         raise HTTPException(status_code=404, detail="Поштучное оборудование не найдено")
     target = _get(db, payload.workplace_id)
+    if target.is_archived:
+        raise HTTPException(status_code=409, detail="Нельзя передать оборудование на удалённое рабочее место")
     if target.status == WorkplaceStatus.inactive:
         raise HTTPException(status_code=409, detail="Нельзя передать оборудование на неактивное рабочее место")
     current = (
@@ -277,6 +287,8 @@ def get_workplace_photo(
     _: dict = _auth,
 ):
     workplace = _get(db, workplace_id)
+    if workplace.is_archived:
+        raise HTTPException(status_code=409, detail="Рабочее место удалено")
     path = _selected_photo(db, workplace)
     if not path:
         if workplace.photo_item_id or workplace.photo_hash:
@@ -365,6 +377,8 @@ def update_workplace(
     current_user: dict = _auth,
 ):
     workplace = _get(db, workplace_id)
+    if workplace.is_archived:
+        raise HTTPException(status_code=409, detail="Рабочее место удалено")
     data = payload.model_dump(exclude_unset=True)
     old_context = {
         "name": workplace.name,
@@ -439,9 +453,15 @@ def update_workplace(
 @router.delete("/{workplace_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_workplace(workplace_id: int, db: Session = Depends(get_db), _: dict = _auth):
     workplace = _get(db, workplace_id)
-    if workplace.assignments:
-        raise HTTPException(status_code=409, detail="Нельзя удалить рабочее место с историей оборудования")
-    db.delete(workplace)
+    if workplace.is_archived:
+        raise HTTPException(status_code=409, detail="Рабочее место уже удалено")
+    if any(assignment.ended_at is None for assignment in workplace.assignments):
+        raise HTTPException(status_code=409, detail="Сначала снимите или передайте оборудование с рабочего места")
+    workplace.is_archived = True
+    workplace.archived_at = datetime.now(timezone.utc)
+    workplace.employee_id = None
+    workplace.status = WorkplaceStatus.inactive
+    _clear_photo(workplace)
     db.commit()
 
 
@@ -453,6 +473,8 @@ def assign_asset(
     current_user: dict = _auth,
 ):
     workplace = _get(db, workplace_id)
+    if workplace.is_archived:
+        raise HTTPException(status_code=409, detail="Рабочее место удалено")
     if workplace.status == WorkplaceStatus.inactive:
         raise HTTPException(
             status_code=409,

@@ -3,6 +3,7 @@ from datetime import date
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from fastapi import HTTPException
 
 from database import Base
 from equipment_history import changed_values, event_changes, initialize_equipment_history
@@ -10,7 +11,7 @@ from models import (
     Branch, Employee, EquipmentEvent, WarehouseItem, Workplace,
     WorkplaceAssetAssignment, WorkplaceStatus,
 )
-from routers.workplaces import transfer_asset
+from routers.workplaces import delete_workplace, transfer_asset
 from schemas import WorkplaceTransfer
 
 
@@ -127,6 +128,53 @@ class EquipmentHistoryTests(unittest.TestCase):
         self.assertEqual(event.to_value, "РМ-2")
         self.assertEqual(event.employee_name, "Второй сотрудник")
         self.assertEqual(event.actor, "admin")
+
+    def test_empty_workplace_with_assignment_history_is_archived(self):
+        branch = Branch(name="Тестовый филиал")
+        item = WarehouseItem(
+            name="Монитор", category="Мониторы", branch=branch,
+            tracking_type="asset", inventory_number="1-00039",
+            placement="Склад/серверная", condition="На складе", unit="шт.", min_quantity=1,
+        )
+        workplace = Workplace(name="РМ-архив", branch=branch, status=WorkplaceStatus.vacant)
+        assignment = WorkplaceAssetAssignment(
+            workplace=workplace, item=item, assigned_at=date(2026, 8, 1),
+            ended_at=date(2026, 9, 1), workplace_name=workplace.name,
+            inventory_number=item.inventory_number, item_name=item.name,
+            item_category=item.category,
+        )
+        self.session.add_all([branch, item, workplace, assignment])
+        self.session.commit()
+
+        delete_workplace(workplace.id, self.session, {"username": "admin"})
+
+        self.session.refresh(workplace)
+        self.assertTrue(workplace.is_archived)
+        self.assertIsNotNone(workplace.archived_at)
+        self.assertEqual(
+            self.session.query(WorkplaceAssetAssignment).filter_by(workplace_id=workplace.id).count(),
+            1,
+        )
+
+    def test_workplace_with_active_equipment_cannot_be_archived(self):
+        branch = Branch(name="Филиал с активным местом")
+        item = WarehouseItem(
+            name="Телефон", category="Телефоны", branch=branch,
+            tracking_type="asset", inventory_number="1-00040",
+            placement="Рабочее место", condition="Рабочий", unit="шт.", min_quantity=1,
+        )
+        workplace = Workplace(name="РМ-активное", branch=branch, status=WorkplaceStatus.vacant)
+        assignment = WorkplaceAssetAssignment(
+            workplace=workplace, item=item, assigned_at=date(2026, 10, 1),
+        )
+        self.session.add_all([branch, item, workplace, assignment])
+        self.session.commit()
+
+        with self.assertRaises(HTTPException) as raised:
+            delete_workplace(workplace.id, self.session, {"username": "admin"})
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertFalse(workplace.is_archived)
 
 
 if __name__ == "__main__":
