@@ -1,6 +1,7 @@
 import enum
+from datetime import datetime, timezone
 from sqlalchemy import (
-    Boolean, Column, Integer, String, Float, Date, Text,
+    Boolean, Column, Integer, String, Float, Date, DateTime, Text,
     ForeignKey, UniqueConstraint, Enum as SAEnum,
 )
 from sqlalchemy.orm import relationship
@@ -191,6 +192,8 @@ class WarehouseItem(Base):
     unit = Column(String(30), nullable=False, default="шт.")
     min_quantity = Column(Integer, nullable=False, default=0)
     notes = Column(Text)
+    is_archived = Column(Boolean, nullable=False, default=False, index=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     movements = relationship(
         "StockMovement", back_populates="item", cascade="all, delete-orphan"
@@ -264,6 +267,46 @@ class WorkplaceAssetAssignment(Base):
     assigned_at = Column(Date, nullable=False)
     ended_at = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True)
+    employee_name = Column(String(255), nullable=True)
+    inventory_number = Column(String(100), nullable=True)
+    item_name = Column(String(255), nullable=True)
+    item_category = Column(String(100), nullable=True)
+    workplace_name = Column(String(255), nullable=True)
+    branch_name = Column(String(255), nullable=True)
+    department_name = Column(String(255), nullable=True)
 
     workplace = relationship("Workplace", back_populates="assignments")
     item = relationship("WarehouseItem")
+    employee = relationship("Employee")
+
+
+class EquipmentEvent(Base):
+    __tablename__ = "equipment_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    occurred_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    effective_date = Column(Date, nullable=True, index=True)
+    category = Column(String(30), nullable=False, index=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    entity_type = Column(String(30), nullable=False, index=True)
+    entity_id = Column(Integer, nullable=True, index=True)
+    reference_type = Column(String(30), nullable=True)
+    reference_id = Column(Integer, nullable=True)
+    inventory_number = Column(String(100), nullable=True, index=True)
+    entity_name = Column(String(500), nullable=False)
+    title = Column(String(500), nullable=False)
+    details = Column(Text, nullable=True)
+    actor = Column(String(255), nullable=True, index=True)
+    branch_name = Column(String(255), nullable=True, index=True)
+    department_name = Column(String(255), nullable=True)
+    workplace_name = Column(String(255), nullable=True)
+    employee_name = Column(String(255), nullable=True, index=True)
+    from_value = Column(String(500), nullable=True)
+    to_value = Column(String(500), nullable=True)
+    changes_json = Column(Text, nullable=True)

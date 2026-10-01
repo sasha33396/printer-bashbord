@@ -10,6 +10,7 @@ import {
   BarcodeOutlined,
   MenuOutlined,
   DesktopOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons'
 import './styles.css'
 
@@ -22,6 +23,7 @@ import WarehousePage from './pages/Warehouse/WarehousePage'
 import WarehouseItemPage from './pages/Warehouse/WarehouseItemPage'
 import WorkplacesPage from './pages/Workplaces/WorkplacesPage'
 import WorkplaceCardPage from './pages/Workplaces/WorkplaceCardPage'
+import HistoryPage from './pages/History/HistoryPage'
 
 const { Header, Sider, Content } = Layout
 const BarcodeScannerModal = lazy(() => import('./components/BarcodeScannerModal'))
@@ -47,8 +49,9 @@ function PrivateRoute({ children }) {
 
 const menuItems = [
   { key: '/devices',   icon: <PrinterOutlined />,  label: <Link to="/devices">Устройства</Link> },
-  { key: '/warehouse', icon: <InboxOutlined />,    label: <Link to="/warehouse">Склад</Link> },
+  { key: '/warehouse', icon: <InboxOutlined />,    label: <Link to="/warehouse">Оборудование</Link> },
   { key: '/workplaces', icon: <DesktopOutlined />, label: <Link to="/workplaces">Рабочие места</Link> },
+  { key: '/history', icon: <HistoryOutlined />, label: <Link to="/history">История движений</Link> },
   { key: '/analytics', icon: <BarChartOutlined />,  label: <Link to="/analytics">Аналитика</Link> },
   { key: '/settings',  icon: <SettingOutlined />,   label: <Link to="/settings">Справочники</Link> },
 ]
@@ -109,6 +112,7 @@ function AppLayout() {
             <Route path="/warehouse/items/:id" element={<PrivateRoute><WarehouseItemPage /></PrivateRoute>} />
             <Route path="/workplaces" element={<PrivateRoute><WorkplacesPage /></PrivateRoute>} />
             <Route path="/workplaces/:id" element={<PrivateRoute><WorkplaceCardPage /></PrivateRoute>} />
+            <Route path="/history" element={<PrivateRoute><HistoryPage /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
           </Routes>
         </Content>

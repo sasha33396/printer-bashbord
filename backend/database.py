@@ -68,6 +68,8 @@ def initialize_database():
             ("graphics", "VARCHAR(255)"),
             ("storage_type", "VARCHAR(50)"),
             ("storage_capacity_gb", "INTEGER"),
+            ("is_archived", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("archived_at", "DATETIME"),
         ):
             if name not in warehouse_columns:
                 connection.execute(text(f"ALTER TABLE warehouse_items ADD COLUMN {name} {sql_type}"))
@@ -93,6 +95,10 @@ def initialize_database():
             "CREATE INDEX IF NOT EXISTS ix_warehouse_items_serial_number "
             "ON warehouse_items (serial_number)"
         ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_is_archived "
+            "ON warehouse_items (is_archived)"
+        ))
 
         workplace_columns = {
             column["name"] for column in inspect(connection).get_columns("workplaces")
@@ -106,6 +112,28 @@ def initialize_database():
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_workplaces_photo_item_id "
             "ON workplaces (photo_item_id)"
+        ))
+
+        assignment_columns = {
+            column["name"] for column in inspect(connection).get_columns("workplace_asset_assignments")
+        }
+        for name, sql_type in (
+            ("employee_id", "INTEGER"),
+            ("employee_name", "VARCHAR(255)"),
+            ("inventory_number", "VARCHAR(100)"),
+            ("item_name", "VARCHAR(255)"),
+            ("item_category", "VARCHAR(100)"),
+            ("workplace_name", "VARCHAR(255)"),
+            ("branch_name", "VARCHAR(255)"),
+            ("department_name", "VARCHAR(255)"),
+        ):
+            if name not in assignment_columns:
+                connection.execute(text(
+                    f"ALTER TABLE workplace_asset_assignments ADD COLUMN {name} {sql_type}"
+                ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_workplace_asset_assignments_employee_id "
+            "ON workplace_asset_assignments (employee_id)"
         ))
 
 

@@ -7,7 +7,7 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CopyOutlined,
-  FilePdfOutlined, FileTextOutlined, PrinterOutlined,
+  FilePdfOutlined, FileTextOutlined, HistoryOutlined, PrinterOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
@@ -586,9 +586,14 @@ export default function DeviceCardPage() {
               </span>
             </div>
           </div>
-          <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>
-            Распечатать штрихкод
-          </Button>
+          <Space wrap>
+            <Button icon={<HistoryOutlined />} onClick={() => navigate(`/history?entity_type=device&entity_id=${device.id}`)}>
+              История движений
+            </Button>
+            <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>
+              Распечатать штрихкод
+            </Button>
+          </Space>
         </header>
 
         <div className="inventory-detail-divider" />

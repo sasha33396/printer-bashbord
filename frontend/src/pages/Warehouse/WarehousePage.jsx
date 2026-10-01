@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
-  BarcodeOutlined, DownloadOutlined, PlusOutlined, UploadOutlined,
+  BarcodeOutlined, DownloadOutlined, PlusOutlined, UndoOutlined, UploadOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -393,6 +393,7 @@ export default function WarehousePage() {
   const [category, setCategory] = useState()
   const [branchId, setBranchId] = useState()
   const [departmentId, setDepartmentId] = useState()
+  const [archiveMode, setArchiveMode] = useState(false)
   const [itemModal, setItemModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [movement, setMovement] = useState(null)
@@ -404,7 +405,7 @@ export default function WarehousePage() {
     setLoading(true)
     try {
       const [itemResponse, deviceResponse, repairResponse] = await Promise.all([
-        api.get('/warehouse/items'), api.get('/devices'), api.get('/repairs'),
+        api.get('/warehouse/items', { params: { archived: archiveMode } }), api.get('/devices'), api.get('/repairs'),
       ])
       setItems(itemResponse.data)
       setDevices(deviceResponse.data)
@@ -414,7 +415,7 @@ export default function WarehousePage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [archiveMode])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -437,11 +438,11 @@ export default function WarehousePage() {
     return true
   }), [items, branchId, departmentId])
 
-  const devicesAtLocation = useMemo(() => devices.filter((device) => {
+  const devicesAtLocation = useMemo(() => (archiveMode ? [] : devices).filter((device) => {
     if (branchId && device.department?.branch?.id !== branchId) return false
     if (departmentId && device.department_id !== departmentId) return false
     return true
-  }), [devices, branchId, departmentId])
+  }), [devices, branchId, departmentId, archiveMode])
 
   const summary = useMemo(() => categories.map((name) => ({
     category: name,
@@ -487,10 +488,20 @@ export default function WarehousePage() {
   const removeItem = async (id) => {
     try {
       await api.delete(`/warehouse/items/${id}`)
-      message.success('Позиция удалена')
+      message.success('Позиция перемещена в архив')
       load()
     } catch (err) {
       message.error(apiErrorMessage(err, 'Не удалось удалить позицию'))
+    }
+  }
+
+  const restoreItem = async (id) => {
+    try {
+      await api.post(`/warehouse/items/${id}/restore`)
+      message.success('Позиция восстановлена из архива')
+      load()
+    } catch (err) {
+      message.error(apiErrorMessage(err, 'Не удалось восстановить позицию'))
     }
   }
 
@@ -600,10 +611,14 @@ export default function WarehousePage() {
         </>}
         <Button size="small" icon={<BarcodeOutlined />} title="Распечатать штрихкод" onClick={() => printItem(row)} />
         <Button size="small" icon={<HistoryOutlined />} title="История" onClick={() => setHistoryItem(row)} />
-        <Button size="small" icon={<EditOutlined />} title="Редактировать" onClick={() => { setEditing(row); setItemModal(true) }} />
-        <Popconfirm title="Удалить позицию?" onConfirm={() => removeItem(row.id)} okText="Удалить" cancelText="Отмена">
-          <Button size="small" icon={<DeleteOutlined />} danger />
-        </Popconfirm>
+        {!row.is_archived && <Button size="small" icon={<EditOutlined />} title="Редактировать" onClick={() => { setEditing(row); setItemModal(true) }} />}
+        {row.is_archived ? (
+          <Button size="small" icon={<UndoOutlined />} title="Восстановить" onClick={() => restoreItem(row.id)} />
+        ) : (
+          <Popconfirm title="Переместить позицию в архив?" onConfirm={() => removeItem(row.id)} okText="В архив" cancelText="Отмена">
+            <Button size="small" icon={<DeleteOutlined />} danger />
+          </Popconfirm>
+        )}
       </Space>
     ),
   }
@@ -674,7 +689,7 @@ export default function WarehousePage() {
   return (
     <>
       <div className="page-toolbar" style={{ marginBottom: 18 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>Склад и оборудование</Typography.Title>
+        <Typography.Title level={3} style={{ margin: 0 }}>Оборудование</Typography.Title>
         <Input.Search
           placeholder="Инвентарный №, наименование, S/N"
           allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }}
@@ -688,6 +703,12 @@ export default function WarehousePage() {
           placeholder="Все отделы" allowClear showSearch optionFilterProp="label" value={departmentId}
           onChange={setDepartmentId} options={filterDepartments.map((item) => ({ value: item.id, label: item.name }))}
           style={{ width: 190 }}
+        />
+        <Select
+          value={archiveMode ? 'archive' : 'active'}
+          onChange={(value) => { setArchiveMode(value === 'archive'); setCategory(undefined) }}
+          options={[{ value: 'active', label: 'Действующее' }, { value: 'archive', label: 'Архив' }]}
+          style={{ width: 150 }}
         />
         <div className="toolbar-actions">
           <Button icon={<DownloadOutlined />} loading={exporting} onClick={exportArchive}>

@@ -1,5 +1,5 @@
 from datetime import date as Date, datetime as DateTime
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from network import normalize_ip_address
@@ -367,6 +367,9 @@ class WarehouseItemRead(BaseModel):
     current_quantity: int
     notes: Optional[str] = None
     workplace: Optional[WarehouseWorkplaceBrief] = None
+    responsible_person: Optional[str] = None
+    is_archived: bool = False
+    archived_at: Optional[DateTime] = None
 
 
 class StockMovementCreate(BaseModel):
@@ -482,6 +485,12 @@ class WorkplaceAssignmentEnd(BaseModel):
     notes: Optional[str] = None
 
 
+class WorkplaceTransfer(BaseModel):
+    workplace_id: int
+    transfer_date: Date
+    notes: Optional[str] = None
+
+
 class WorkplaceAssignmentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -491,6 +500,14 @@ class WorkplaceAssignmentRead(BaseModel):
     assigned_at: Date
     ended_at: Optional[Date] = None
     notes: Optional[str] = None
+    employee_id: Optional[int] = None
+    employee_name: Optional[str] = None
+    inventory_number: Optional[str] = None
+    item_name: Optional[str] = None
+    item_category: Optional[str] = None
+    workplace_name: Optional[str] = None
+    branch_name: Optional[str] = None
+    department_name: Optional[str] = None
     item: WorkplaceAssetBrief
 
 
@@ -512,6 +529,39 @@ class WorkplaceRead(BaseModel):
     has_photo: bool = False
     current_assets: List[WorkplaceAssignmentRead] = Field(default_factory=list)
     assignment_history: List[WorkplaceAssignmentRead] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Global equipment history
+# ---------------------------------------------------------------------------
+
+class EquipmentEventRead(BaseModel):
+    id: int
+    occurred_at: DateTime
+    effective_date: Optional[Date] = None
+    category: str
+    event_type: str
+    entity_type: str
+    entity_id: Optional[int] = None
+    reference_type: Optional[str] = None
+    reference_id: Optional[int] = None
+    inventory_number: Optional[str] = None
+    entity_name: str
+    title: str
+    details: Optional[str] = None
+    actor: Optional[str] = None
+    branch_name: Optional[str] = None
+    department_name: Optional[str] = None
+    workplace_name: Optional[str] = None
+    employee_name: Optional[str] = None
+    from_value: Optional[str] = None
+    to_value: Optional[str] = None
+    changes: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EquipmentEventPage(BaseModel):
+    total: int
+    items: List[EquipmentEventRead]
 
 
 # ---------------------------------------------------------------------------

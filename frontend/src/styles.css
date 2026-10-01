@@ -58,6 +58,21 @@ body {
   max-width: 100%;
 }
 
+.history-event-type {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.history-change-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.7fr) minmax(160px, 1fr) auto minmax(160px, 1fr);
+  align-items: start;
+  gap: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .inventory-detail-page {
   width: 100%;
   max-width: 1480px;
@@ -597,6 +612,15 @@ body {
 
   .page-header {
     align-items: flex-start;
+  }
+
+  .history-change-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .history-change-row > span:nth-of-type(2) {
+    display: none;
   }
 
   .page-header .ant-typography {

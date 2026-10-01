@@ -2,11 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import SessionLocal, initialize_database
+from equipment_history import initialize_equipment_history
 from inventory_numbers import inventory_number_lock, migrate_inventory_numbers
 from models import WarehouseItem
 from photo_storage import move_photo_directory
 from routers import (
-    analytics, auth, consumables, devices, employees, manufacturers,
+    analytics, auth, consumables, devices, employees, history, manufacturers,
     inventory, orgs, repairs, warehouse, workplaces,
 )
 
@@ -17,6 +18,14 @@ def migrate_repair_counter_deltas() -> None:
     db = SessionLocal()
     try:
         repairs.recalculate_all_repair_deltas(db)
+    finally:
+        db.close()
+
+
+def migrate_equipment_history() -> None:
+    db = SessionLocal()
+    try:
+        initialize_equipment_history(db)
     finally:
         db.close()
 
@@ -52,6 +61,7 @@ def migrate_existing_inventory_numbers() -> None:
 
 migrate_existing_inventory_numbers()
 migrate_repair_counter_deltas()
+migrate_equipment_history()
 
 app = FastAPI(title="Printer Dashboard API", version="1.0.0")
 
@@ -74,6 +84,7 @@ app.include_router(warehouse.router, prefix="/api/warehouse", tags=["warehouse"]
 app.include_router(employees.router, prefix="/api/employees", tags=["employees"])
 app.include_router(workplaces.router, prefix="/api/workplaces", tags=["workplaces"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["inventory"])
+app.include_router(history.router, prefix="/api/history", tags=["history"])
 
 
 @app.get("/api/health")

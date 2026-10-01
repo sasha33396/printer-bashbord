@@ -269,7 +269,9 @@ export default function WorkplaceCardPage() {
 
   const status = WORKPLACE_STATUS[workplace.status] || { label: workplace.status, color: 'default' }
   const historyColumns = [
-    { title: 'Оборудование', key: 'item', render: (_, row) => `${row.item.category} · ${row.item.inventory_number || 'без №'} · ${row.item.name}` },
+    { title: 'Оборудование', key: 'item', render: (_, row) => `${row.item_category || row.item.category} · ${row.inventory_number || row.item.inventory_number || 'без №'} · ${row.item_name || row.item.name}` },
+    { title: 'Сотрудник', dataIndex: 'employee_name', render: (value) => value || 'Не назначен' },
+    { title: 'Рабочее место', dataIndex: 'workplace_name', render: (value) => value || '—' },
     { title: 'Установлено', dataIndex: 'assigned_at', width: 120, render: fmtDate },
     { title: 'Снято', dataIndex: 'ended_at', width: 120, render: fmtDate },
     { title: 'Примечание', dataIndex: 'notes', render: (value) => value || '—' },

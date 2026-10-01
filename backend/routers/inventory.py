@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 from starlette.background import BackgroundTask
 
 from database import get_db
+from equipment_history import actor_name, add_device_event, add_item_event
 from inventory_numbers import inventory_number_lock, inventory_number_owner, require_inventory_number
 from models import (
     Branch, ConsumableLog, Department, Device, DeviceStatus, DeviceType,
@@ -455,7 +456,7 @@ def _card_from_text(content: bytes) -> dict:
 async def import_inventory_archive(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=422, detail="Выберите ZIP-архив инвентаря")
@@ -517,9 +518,28 @@ async def import_inventory_archive(
                             raise ValueError("в TXT отсутствуют данные карточки")
                         if card.get("entity_type") == "device":
                             action = _import_device(db, inventory_number, card.get("data") or {})
+                            device = db.query(Device).filter(Device.inventory_number == inventory_number).one()
+                            db.expire(device, ["department"])
+                            add_device_event(
+                                db,
+                                device,
+                                category="device",
+                                event_type="imported" if action == "created" else "updated",
+                                title="Устройство импортировано" if action == "created" else "Устройство обновлено импортом",
+                                actor=actor_name(current_user),
+                            )
                             allow_photos = True
                         elif card.get("entity_type") == "warehouse_item":
                             action, item = _import_warehouse_item(db, inventory_number, card.get("data") or {})
+                            db.expire(item, ["branch", "department"])
+                            add_item_event(
+                                db,
+                                item,
+                                category="equipment",
+                                event_type="imported" if action == "created" else "updated",
+                                title="Оборудование импортировано" if action == "created" else "Оборудование обновлено импортом",
+                                actor=actor_name(current_user),
+                            )
                             allow_photos = item.tracking_type == "asset"
                         else:
                             raise ValueError("неизвестный тип записи")

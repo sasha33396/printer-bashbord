@@ -10,6 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
+from equipment_history import actor_name, add_device_event, changed_values
 from models import Device, RepairRecord, RepairStatus, RepairWorkItem
 from printer_counter import read_counter
 from repair_invoice_storage import MAX_INVOICE_BYTES, delete_invoice, invoice_file
@@ -117,7 +118,7 @@ def recalculate_all_repair_deltas(db: Session) -> None:
     db.commit()
 
 
-def _complete_repair(db: Session, record: RepairRecord) -> RepairRecord:
+def _complete_repair(db: Session, record: RepairRecord, current_user: Optional[dict] = None) -> RepairRecord:
     if record.repair_status == RepairStatus.completed:
         return _with_device(db).filter(RepairRecord.id == record.id).first()
     device = db.get(Device, record.device_id)
@@ -129,6 +130,19 @@ def _complete_repair(db: Session, record: RepairRecord) -> RepairRecord:
     record.completion_page_counter = end_counter
     _update_device_counter(device, end_counter)
     recalculate_device_repair_deltas(db, record.device_id)
+    add_device_event(
+        db,
+        device,
+        category="repair",
+        event_type="repair_completed",
+        title="Ремонт завершён",
+        actor=actor_name(current_user),
+        effective_date=record.returned_date,
+        reference_type="repair",
+        reference_id=record.id,
+        details=f"Стоимость: {record.cost:.2f} ₽. Счётчик: {end_counter}",
+        changes={"Состояние ремонта": {"before": "in_progress", "after": "completed"}},
+    )
     db.commit()
     return _with_device(db).filter(RepairRecord.id == record.id).first()
 
@@ -151,7 +165,7 @@ def list_repairs(
 def create_repair(
     payload: RepairRecordCreate,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     device = db.get(Device, payload.device_id)
     if not device:
@@ -171,6 +185,22 @@ def create_repair(
         record.completion_page_counter = end_counter
         _update_device_counter(device, end_counter)
     recalculate_device_repair_deltas(db, record.device_id)
+    add_device_event(
+        db,
+        device,
+        category="repair",
+        event_type="repair_completed" if record.repair_status == RepairStatus.completed else "repair_created",
+        title="Добавлен завершённый ремонт" if record.repair_status == RepairStatus.completed else "Добавлен ремонт",
+        actor=actor_name(current_user),
+        effective_date=record.returned_date or record.date,
+        reference_type="repair",
+        reference_id=record.id,
+        details=record.description,
+        changes={
+            "Состояние": {"before": None, "after": record.repair_status.value},
+            "Стоимость": {"before": None, "after": record.cost},
+        },
+    )
     db.commit()
     return _with_device(db).filter(RepairRecord.id == record.id).first()
 
@@ -180,11 +210,17 @@ def update_repair(
     repair_id: int,
     payload: RepairRecordUpdate,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     record = _get_or_404(db, repair_id)
     old_device_id = record.device_id
+    old_status = record.repair_status
     data = payload.model_dump(exclude_unset=True)
+    before = {field: getattr(record, field) for field in data if field not in {"work_items"}}
+    old_work_items = [
+        {"description": item.description, "cost": item.cost}
+        for item in record.work_items
+    ]
     work_items = data.pop("work_items", None)
     requested_completion_counter = data.pop("completion_page_counter", None)
     completion_counter_was_set = "completion_page_counter" in payload.model_fields_set
@@ -219,6 +255,40 @@ def update_repair(
     recalculate_device_repair_deltas(db, old_device_id)
     if record.device_id != old_device_id:
         recalculate_device_repair_deltas(db, record.device_id)
+    changes = changed_values(before, {
+        field: getattr(record, field) for field in before
+    }, {
+        "repair_status": "Состояние ремонта",
+        "date": "Забрали в ремонт",
+        "returned_date": "Вернули из ремонта",
+        "connected_date": "Подключили",
+        "description": "Неисправность",
+        "contractor": "Исполнитель",
+        "responsible_person": "Ответственное лицо",
+        "cost": "Стоимость",
+        "completion_page_counter": "Счётчик при возврате",
+    })
+    if work_items is not None and old_work_items != work_items:
+        changes["Проведённые работы"] = {"before": old_work_items, "after": work_items}
+    if completing:
+        event_type, title = "repair_completed", "Ремонт завершён"
+    elif target_status == RepairStatus.impossible and old_status != RepairStatus.impossible:
+        event_type, title = "repair_impossible", "Ремонт признан невозможным"
+    else:
+        event_type, title = "repair_updated", "Ремонт изменён"
+    add_device_event(
+        db,
+        device,
+        category="repair",
+        event_type=event_type,
+        title=title,
+        actor=actor_name(current_user),
+        effective_date=record.returned_date or record.date,
+        reference_type="repair",
+        reference_id=record.id,
+        details=record.description,
+        changes=changes,
+    )
     db.commit()
     return _with_device(db).filter(RepairRecord.id == repair_id).first()
 
@@ -227,9 +297,9 @@ def update_repair(
 def complete_repair(
     repair_id: int,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
-    return _complete_repair(db, _get_or_404(db, repair_id))
+    return _complete_repair(db, _get_or_404(db, repair_id), current_user)
 
 
 @router.post("/{repair_id}/invoice", response_model=RepairRecordRead)
@@ -237,7 +307,7 @@ async def upload_invoice(
     repair_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     record = _get_or_404(db, repair_id)
     original_name = Path((file.filename or "invoice.pdf").replace("\\", "/")).name
@@ -267,6 +337,19 @@ async def upload_invoice(
         temporary.unlink(missing_ok=True)
 
     record.invoice_name = original_name
+    device = db.get(Device, record.device_id)
+    add_device_event(
+        db,
+        device,
+        category="repair",
+        event_type="repair_invoice_attached",
+        title="К ремонту прикреплён PDF-счёт",
+        actor=actor_name(current_user),
+        effective_date=record.returned_date or record.date,
+        reference_type="repair",
+        reference_id=record.id,
+        details=original_name,
+    )
     db.commit()
     return _with_device(db).filter(RepairRecord.id == repair_id).first()
 
@@ -288,11 +371,25 @@ def download_invoice(
 def remove_invoice(
     repair_id: int,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     record = _get_or_404(db, repair_id)
+    old_name = record.invoice_name
     delete_invoice(repair_id)
     record.invoice_name = None
+    device = db.get(Device, record.device_id)
+    add_device_event(
+        db,
+        device,
+        category="repair",
+        event_type="repair_invoice_removed",
+        title="PDF-счёт ремонта удалён",
+        actor=actor_name(current_user),
+        effective_date=record.returned_date or record.date,
+        reference_type="repair",
+        reference_id=record.id,
+        details=old_name,
+    )
     db.commit()
 
 
@@ -300,10 +397,23 @@ def remove_invoice(
 def delete_repair(
     repair_id: int,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     record = _get_or_404(db, repair_id)
     device_id = record.device_id
+    device = db.get(Device, device_id)
+    add_device_event(
+        db,
+        device,
+        category="repair",
+        event_type="repair_deleted",
+        title="Ремонт удалён",
+        actor=actor_name(current_user),
+        effective_date=record.date,
+        reference_type="repair",
+        reference_id=record.id,
+        details=record.description,
+    )
     db.delete(record)
     db.flush()
     recalculate_device_repair_deltas(db, device_id)

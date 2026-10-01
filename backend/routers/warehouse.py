@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
+from equipment_history import actor_name, add_item_event, changed_values
 from inventory_numbers import (
     inventory_number_lock, inventory_number_owner, next_inventory_number,
     require_inventory_number,
@@ -182,17 +183,22 @@ def _item_read(item: WarehouseItem, quantity: int, workplace=None) -> WarehouseI
         current_quantity=quantity,
         notes=item.notes,
         workplace=workplace,
+        responsible_person=(workplace.employee.full_name if workplace and workplace.employee else None),
+        is_archived=item.is_archived,
+        archived_at=item.archived_at,
     )
 
 
 @router.get("/items", response_model=List[WarehouseItemRead])
 def list_items(
+    archived: Optional[bool] = False,
     db: Session = Depends(get_db),
     _: dict = _auth,
 ):
     items = (
         db.query(WarehouseItem)
         .options(joinedload(WarehouseItem.branch), joinedload(WarehouseItem.department))
+        .filter(WarehouseItem.is_archived.is_(archived))
         .order_by(WarehouseItem.category, WarehouseItem.name)
         .all()
     )
@@ -215,7 +221,7 @@ def get_item(
         raise HTTPException(status_code=404, detail="Позиция не найдена")
     assignment = (
         db.query(WorkplaceAssetAssignment)
-        .options(joinedload(WorkplaceAssetAssignment.workplace))
+        .options(joinedload(WorkplaceAssetAssignment.workplace).joinedload(Workplace.employee))
         .filter(
             WorkplaceAssetAssignment.item_id == item.id,
             WorkplaceAssetAssignment.ended_at.is_(None),
@@ -367,7 +373,7 @@ def delete_item_photo(
 def create_item(
     payload: WarehouseItemCreate,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     _validate_location(db, payload.branch_id, payload.department_id)
     sku = _normalize_optional(payload.sku)
@@ -415,6 +421,17 @@ def create_item(
                     quantity=initial_quantity,
                     notes="Начальный остаток",
                 ))
+            db.flush()
+            add_item_event(
+                db,
+                item,
+                category="equipment",
+                event_type="created",
+                title="Оборудование добавлено" if item.tracking_type == "asset" else "Номенклатура добавлена",
+                actor=actor_name(current_user),
+                effective_date=date.today(),
+                details=f"Начальный остаток: {initial_quantity} {item.unit}",
+            )
             db.commit()
         except IntegrityError as exc:
             db.rollback()
@@ -428,10 +445,11 @@ def update_item(
     item_id: int,
     payload: WarehouseItemUpdate,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     item = _get_item_or_404(db, item_id)
     data = payload.model_dump(exclude_unset=True)
+    before = {field: getattr(item, field) for field in data}
     if "branch_id" in data and data["branch_id"] != item.branch_id and "department_id" not in data:
         data["department_id"] = None
     branch_id = data.get("branch_id", item.branch_id)
@@ -472,6 +490,35 @@ def update_item(
         for field, value in data.items():
             setattr(item, field, value)
         try:
+            db.flush()
+            db.expire(item, ["branch", "department"])
+            changes = changed_values(before, data, {
+                "inventory_number": "Инвентарный номер",
+                "name": "Наименование",
+                "category": "Категория",
+                "branch_id": "Филиал",
+                "department_id": "Отдел",
+                "placement": "Местонахождение",
+                "condition": "Состояние",
+                "serial_number": "Серийный номер",
+                "manufacturer": "Производитель",
+                "model": "Модель",
+                "ram_gb": "ОЗУ, ГБ",
+                "processor": "Процессор",
+                "graphics": "Видеокарта",
+                "storage_type": "Накопитель",
+                "storage_capacity_gb": "Объём, ГБ",
+            })
+            if changes:
+                add_item_event(
+                    db,
+                    item,
+                    category="equipment",
+                    event_type="updated",
+                    title="Карточка оборудования изменена",
+                    actor=actor_name(current_user),
+                    changes=changes,
+                )
             db.commit()
         except IntegrityError as exc:
             db.rollback()
@@ -491,17 +538,54 @@ def update_item(
 def delete_item(
     item_id: int,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     item = _get_item_or_404(db, item_id)
-    if db.query(StockMovement.id).filter(StockMovement.item_id == item_id).first():
+    if item.is_archived:
+        raise HTTPException(status_code=409, detail="Оборудование уже находится в архиве")
+    if db.query(WorkplaceAssetAssignment.id).filter(
+        WorkplaceAssetAssignment.item_id == item_id,
+        WorkplaceAssetAssignment.ended_at.is_(None),
+    ).first():
         raise HTTPException(
             status_code=409,
-            detail="Нельзя удалить позицию с историей движений",
+            detail="Сначала снимите оборудование с рабочего места",
         )
-    db.delete(item)
+    item.is_archived = True
+    item.archived_at = datetime.now(timezone.utc)
+    add_item_event(
+        db,
+        item,
+        category="equipment",
+        event_type="archived",
+        title="Оборудование перемещено в архив",
+        actor=actor_name(current_user),
+    )
     db.commit()
-    delete_photo_directory(item.inventory_number)
+
+
+@router.post("/items/{item_id}/restore", response_model=WarehouseItemRead)
+def restore_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = _auth,
+):
+    item = _get_item_or_404(db, item_id)
+    if not item.is_archived:
+        raise HTTPException(status_code=409, detail="Оборудование не находится в архиве")
+    item.is_archived = False
+    item.archived_at = None
+    add_item_event(
+        db,
+        item,
+        category="equipment",
+        event_type="restored",
+        title="Оборудование восстановлено из архива",
+        actor=actor_name(current_user),
+    )
+    db.commit()
+    db.refresh(item)
+    return _item_read(item, _current_quantity(db, item.id))
 
 
 @router.get("/items/{item_id}/movements", response_model=List[StockMovementRead])
@@ -528,9 +612,9 @@ def create_movement(
     item_id: int,
     payload: StockMovementCreate,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
-    _get_item_or_404(db, item_id)
+    item = _get_item_or_404(db, item_id)
     current = _current_quantity(db, item_id)
     delta = movement_delta(payload.movement_type.value, payload.quantity)
     if current + delta < 0:
@@ -546,6 +630,16 @@ def create_movement(
         notes=_normalize_optional(payload.notes),
     )
     db.add(movement)
+    add_item_event(
+        db,
+        item,
+        category="stock",
+        event_type="stock_received" if payload.movement_type == StockMovementType.receipt else "stock_issued",
+        title="Поступление на склад" if payload.movement_type == StockMovementType.receipt else "Выдача со склада",
+        actor=actor_name(current_user),
+        effective_date=payload.date,
+        details=f"Количество: {payload.quantity} {item.unit}" + (f". {payload.notes}" if payload.notes else ""),
+    )
     db.commit()
     db.refresh(movement)
     return movement
@@ -555,7 +649,7 @@ def create_movement(
 def delete_movement(
     movement_id: int,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     movement = db.get(StockMovement, movement_id)
     if not movement:
@@ -567,5 +661,16 @@ def delete_movement(
             status_code=409,
             detail="Нельзя удалить поступление: остаток станет отрицательным",
         )
+    item = _get_item_or_404(db, movement.item_id)
+    add_item_event(
+        db,
+        item,
+        category="stock",
+        event_type="stock_movement_deleted",
+        title="Складская операция удалена",
+        actor=actor_name(current_user),
+        effective_date=movement.date,
+        details=f"{movement.movement_type.value}: {movement.quantity} {item.unit}",
+    )
     db.delete(movement)
     db.commit()

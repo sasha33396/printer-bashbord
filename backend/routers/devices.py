@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
+from equipment_history import actor_name, add_device_event, changed_values
 from inventory_numbers import (
     inventory_number_lock, inventory_number_owner, next_inventory_number,
     require_inventory_number,
@@ -150,7 +151,7 @@ def list_devices(
 def create_device(
     payload: DeviceCreate,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     data = payload.model_dump()
     try:
@@ -164,6 +165,16 @@ def create_device(
         data["inventory_number"] = inventory_number
         device = Device(**data)
         db.add(device)
+        db.flush()
+        add_device_event(
+            db,
+            device,
+            category="device",
+            event_type="created",
+            title="Устройство добавлено",
+            actor=actor_name(current_user),
+            effective_date=date.today(),
+        )
         db.commit()
     db.refresh(device)
     return db.get(Device, device.id)
@@ -174,7 +185,7 @@ def create_device(
 def import_devices(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     if not file.filename.endswith((".xlsx", ".xlsm")):
         raise HTTPException(
@@ -341,6 +352,16 @@ def import_devices(
             device = Device(inventory_number=inv, **device_data)
             db.add(device)
             db.flush()
+        add_device_event(
+            db,
+            device,
+            category="device",
+            event_type="imported",
+            title="Устройство импортировано",
+            actor=actor_name(current_user),
+            effective_date=date.today(),
+            details=f"Строка Excel: {row_num}",
+        )
         created += 1
 
     db.commit()
@@ -485,10 +506,11 @@ def update_device(
     device_id: int,
     payload: DeviceUpdate,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
     data = payload.model_dump(exclude_unset=True)
+    before = {field: getattr(device, field) for field in data}
     if "ip_address" in data and data["ip_address"] != device.ip_address:
         device.page_counter = None
         device.counter_checked_at = None
@@ -523,6 +545,29 @@ def update_device(
         for field, value in data.items():
             setattr(device, field, value)
         try:
+            db.flush()
+            db.expire(device, ["department"])
+            changes = changed_values(before, data, {
+                "inventory_number": "Инвентарный номер",
+                "ip_address": "IP-адрес",
+                "serial_number": "Серийный номер",
+                "manufacturer": "Производитель",
+                "model": "Модель",
+                "device_type": "Тип устройства",
+                "department_id": "Отдел",
+                "location": "Местонахождение",
+                "status": "Состояние",
+            })
+            if changes:
+                add_device_event(
+                    db,
+                    device,
+                    category="device",
+                    event_type="updated",
+                    title="Карточка устройства изменена",
+                    actor=actor_name(current_user),
+                    changes=changes,
+                )
             db.commit()
         except IntegrityError as exc:
             db.rollback()
@@ -572,11 +617,19 @@ def refresh_counter(
 def delete_device(
     device_id: int,
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
     inventory_number = device.inventory_number
     repair_ids = [record.id for record in device.repair_records]
+    add_device_event(
+        db,
+        device,
+        category="device",
+        event_type="deleted",
+        title="Устройство удалено",
+        actor=actor_name(current_user),
+    )
     db.delete(device)
     db.commit()
     delete_photo_directory(inventory_number)
