@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
-from equipment_history import actor_name, add_item_event, changed_values
+from equipment_history import actor_name, add_event, add_item_event, changed_values
 from models import (
     Branch, Department, Employee, WarehouseItem, Workplace,
     WorkplaceAssetAssignment, WorkplaceStatus,
@@ -542,19 +542,36 @@ def end_assignment(
     workplace = db.get(Workplace, assignment.workplace_id)
     if workplace and workplace.photo_item_id == assignment.item_id:
         _clear_photo(workplace)
-    add_item_event(
+    add_event(
         db,
-        assignment.item,
-        workplace=assignment.workplace,
-        employee=assignment.employee or assignment.workplace.employee,
         category="workplace",
         event_type="returned_to_stock",
+        entity_type="warehouse_item",
+        entity_id=assignment.item_id,
+        inventory_number=assignment.inventory_number or assignment.item.inventory_number,
+        entity_name=assignment.item_name or assignment.item.name,
         title="Оборудование снято с рабочего места",
         actor=actor_name(current_user),
         effective_date=payload.ended_at,
+        reference_type="workplace_assignment",
+        reference_id=assignment.id,
+        branch_name=assignment.branch_name,
+        department_name=assignment.department_name,
+        workplace_name=assignment.workplace_name or assignment.workplace.name,
+        employee_name=assignment.employee_name,
         from_value=assignment.workplace_name or assignment.workplace.name,
         to_value="Склад/серверная",
         details=payload.notes or assignment.notes,
+        changes={
+            "Рабочее место": {
+                "before": assignment.workplace_name or assignment.workplace.name,
+                "after": "Склад/серверная",
+            },
+            "Ответственный": {
+                "before": assignment.employee_name,
+                "after": None,
+            },
+        },
     )
     db.commit()
     db.refresh(assignment)

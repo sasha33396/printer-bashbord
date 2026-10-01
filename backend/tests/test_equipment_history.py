@@ -11,8 +11,8 @@ from models import (
     Branch, Employee, EquipmentEvent, WarehouseItem, Workplace,
     WorkplaceAssetAssignment, WorkplaceStatus,
 )
-from routers.workplaces import delete_workplace, transfer_asset
-from schemas import WorkplaceTransfer
+from routers.workplaces import delete_workplace, end_assignment, transfer_asset
+from schemas import WorkplaceAssignmentEnd, WorkplaceTransfer
 
 
 class EquipmentHistoryTests(unittest.TestCase):
@@ -175,6 +175,75 @@ class EquipmentHistoryTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 409)
         self.assertFalse(workplace.is_archived)
+
+    def test_detaching_equipment_writes_global_history_event(self):
+        branch = Branch(name="Филиал снятия")
+        employee = Employee(full_name="Ответственный сотрудник", branch=branch)
+        item = WarehouseItem(
+            name="Рабочий компьютер", category="Компьютеры", branch=branch,
+            tracking_type="asset", inventory_number="1-00041",
+            placement="Рабочее место", condition="Рабочий", unit="шт.", min_quantity=1,
+        )
+        workplace = Workplace(
+            name="РМ-снятие", branch=branch, employee=employee,
+            status=WorkplaceStatus.occupied,
+        )
+        assignment = WorkplaceAssetAssignment(
+            workplace=workplace, item=item, assigned_at=date(2026, 9, 1),
+            employee=employee, employee_name=employee.full_name,
+            workplace_name=workplace.name, branch_name=branch.name,
+            inventory_number=item.inventory_number, item_name=item.name,
+            item_category=item.category,
+        )
+        self.session.add_all([branch, employee, item, workplace, assignment])
+        self.session.commit()
+
+        end_assignment(
+            assignment.id,
+            WorkplaceAssignmentEnd(ended_at=date(2026, 10, 1)),
+            self.session,
+            {"username": "admin"},
+        )
+
+        event = self.session.query(EquipmentEvent).one()
+        self.assertEqual(event.event_type, "returned_to_stock")
+        self.assertEqual(event.reference_type, "workplace_assignment")
+        self.assertEqual(event.reference_id, assignment.id)
+        self.assertEqual(event.employee_name, "Ответственный сотрудник")
+        self.assertEqual(event.from_value, "РМ-снятие")
+        self.assertEqual(event.to_value, "Склад/серверная")
+        self.assertEqual(event_changes(event)["Рабочее место"]["after"], "Склад/серверная")
+
+    def test_startup_restores_missing_detach_event(self):
+        branch = Branch(name="Филиал восстановления")
+        item = WarehouseItem(
+            name="Архивный компьютер", category="Компьютеры", branch=branch,
+            tracking_type="asset", inventory_number="1-00042",
+            placement="Склад/серверная", condition="На складе", unit="шт.", min_quantity=1,
+        )
+        workplace = Workplace(name="Старое РМ", branch=branch, status=WorkplaceStatus.vacant)
+        assignment = WorkplaceAssetAssignment(
+            workplace=workplace, item=item, assigned_at=date(2026, 7, 1),
+            ended_at=date(2026, 8, 1), workplace_name=workplace.name,
+            branch_name=branch.name, inventory_number=item.inventory_number,
+            item_name=item.name, item_category=item.category,
+        )
+        marker = EquipmentEvent(
+            category="equipment", event_type="existing_record",
+            entity_type="warehouse_item", entity_id=999,
+            entity_name="Маркер", title="Журнал уже создан",
+        )
+        self.session.add_all([branch, item, workplace, assignment, marker])
+        self.session.commit()
+
+        initialize_equipment_history(self.session)
+
+        restored = self.session.query(EquipmentEvent).filter_by(
+            entity_id=item.id,
+            event_type="returned_to_stock",
+        ).one()
+        self.assertEqual(restored.effective_date, date(2026, 8, 1))
+        self.assertEqual(restored.reference_id, assignment.id)
 
 
 if __name__ == "__main__":

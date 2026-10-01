@@ -133,6 +133,7 @@ def event_changes(event: EquipmentEvent) -> dict:
 
 
 def initialize_equipment_history(db: Session) -> None:
+    history_exists = db.query(EquipmentEvent.id).first() is not None
     assignments = (
         db.query(WorkplaceAssetAssignment)
         .options(
@@ -159,7 +160,43 @@ def initialize_equipment_history(db: Session) -> None:
             assignment.employee_id = workplace.employee.id
             assignment.employee_name = workplace.employee.full_name
 
-    if db.query(EquipmentEvent.id).first():
+    if history_exists:
+        # Reconcile completed assignments on every startup. This also restores
+        # detach events made by older application versions that only closed
+        # the assignment period without writing to the global journal.
+        for assignment in assignments:
+            if assignment.ended_at is None:
+                continue
+            existing = db.query(EquipmentEvent.id).filter(
+                EquipmentEvent.entity_type == "warehouse_item",
+                EquipmentEvent.entity_id == assignment.item_id,
+                EquipmentEvent.event_type == "returned_to_stock",
+                EquipmentEvent.effective_date == assignment.ended_at,
+                EquipmentEvent.workplace_name == assignment.workplace_name,
+            ).first()
+            if existing:
+                continue
+            add_event(
+                db,
+                category="workplace",
+                event_type="returned_to_stock",
+                entity_type="warehouse_item",
+                entity_id=assignment.item_id,
+                inventory_number=assignment.inventory_number or assignment.item.inventory_number,
+                entity_name=assignment.item_name or assignment.item.name,
+                title="Оборудование снято с рабочего места",
+                actor="migration",
+                effective_date=assignment.ended_at,
+                reference_type="workplace_assignment",
+                reference_id=assignment.id,
+                branch_name=assignment.branch_name,
+                department_name=assignment.department_name,
+                workplace_name=assignment.workplace_name,
+                employee_name=assignment.employee_name,
+                from_value=assignment.workplace_name,
+                to_value="Склад/серверная",
+                details=assignment.notes,
+            )
         db.commit()
         return
 
@@ -231,6 +268,8 @@ def initialize_equipment_history(db: Session) -> None:
                 title="Оборудование снято с рабочего места",
                 actor="migration",
                 effective_date=assignment.ended_at,
+                reference_type="workplace_assignment",
+                reference_id=assignment.id,
                 branch_name=assignment.branch_name,
                 department_name=assignment.department_name,
                 workplace_name=assignment.workplace_name,
