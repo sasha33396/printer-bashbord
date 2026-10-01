@@ -13,6 +13,14 @@ from routers import (
 initialize_database()
 
 
+def migrate_repair_counter_deltas() -> None:
+    db = SessionLocal()
+    try:
+        repairs.recalculate_all_repair_deltas(db)
+    finally:
+        db.close()
+
+
 def migrate_existing_inventory_numbers() -> None:
     db = SessionLocal()
     moved_directories: list[tuple[str, str]] = []
@@ -43,6 +51,7 @@ def migrate_existing_inventory_numbers() -> None:
 
 
 migrate_existing_inventory_numbers()
+migrate_repair_counter_deltas()
 
 app = FastAPI(title="Printer Dashboard API", version="1.0.0")
 

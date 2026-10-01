@@ -112,15 +112,39 @@ class RepairRecord(Base):
     date = Column(Date, nullable=False)
     repair_type = Column(SAEnum(RepairType), nullable=False)
     repair_status = Column(SAEnum(RepairStatus), nullable=False, default=RepairStatus.in_progress)
+    task_date = Column(Date, nullable=True)
+    task_url = Column(String(1000), nullable=True)
+    source_location = Column(String(500), nullable=True)
+    responsible_person = Column(String(255), nullable=True)
+    returned_date = Column(Date, nullable=True)
+    connected_date = Column(Date, nullable=True)
     description = Column(Text, nullable=False)
     contractor = Column(String(255))
     cost = Column(Float, default=0.0)
     page_counter = Column(Integer, nullable=True)
     completion_page_counter = Column(Integer, nullable=True)
     page_counter_delta = Column(Integer, nullable=True)
+    invoice_name = Column(String(500), nullable=True)
     notes = Column(Text)
 
     device = relationship("Device", back_populates="repair_records")
+    work_items = relationship(
+        "RepairWorkItem",
+        back_populates="repair",
+        cascade="all, delete-orphan",
+        order_by="RepairWorkItem.id",
+    )
+
+
+class RepairWorkItem(Base):
+    __tablename__ = "repair_work_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    repair_id = Column(Integer, ForeignKey("repair_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    cost = Column(Float, nullable=False, default=0.0)
+
+    repair = relationship("RepairRecord", back_populates="work_items")
 
 
 class ConsumableLog(Base):
