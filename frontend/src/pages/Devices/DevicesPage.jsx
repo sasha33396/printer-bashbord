@@ -6,11 +6,12 @@ import {
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, DownloadOutlined,
-  EditOutlined, DeleteOutlined, EyeOutlined,
+  EditOutlined, DeleteOutlined, EyeOutlined, CopyOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
 import api from '../../api/api'
+import { copyText, deviceWebUrl } from '../../utils/network'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -107,7 +108,9 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
     try {
       if (editing) {
         await api.put(`/devices/${editing.id}`, payload)
-        message.success('Устройство обновлено')
+        message.success(payload.inventory_number !== editing.inventory_number
+          ? 'Устройство обновлено. Распечатайте новую этикетку'
+          : 'Устройство обновлено')
       } else {
         await api.post('/devices', payload)
         message.success('Устройство добавлено')
@@ -156,13 +159,23 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item
-              name="inventory_number"
-              label="Инв. номер"
-              rules={[{ required: true, message: 'Обязательное поле' }]}
-            >
-              <Input />
-            </Form.Item>
+            {editing ? (
+              <Form.Item
+                name="inventory_number"
+                label="Инв. номер"
+                extra="После изменения нужно распечатать новую этикетку"
+                rules={[
+                  { required: true, message: 'Введите инвентарный номер' },
+                  { pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' },
+                ]}
+              >
+                <Input placeholder="1-00001" />
+              </Form.Item>
+            ) : (
+              <Form.Item label="Инв. номер">
+                <Input value="Присвоится автоматически" disabled />
+              </Form.Item>
+            )}
           </Col>
           <Col span={12}>
             <Form.Item name="serial_number" label="Серийный номер">
@@ -385,8 +398,34 @@ export default function DevicesPage() {
       title: 'IP-адрес',
       dataIndex: 'ip_address',
       key: 'ip_address',
-      width: 160,
-      render: (v) => v || <Typography.Text type="secondary">—</Typography.Text>,
+      width: 190,
+      render: (v) => v ? (
+        <Space className="device-ip-value" size={4}>
+          <a
+            href={deviceWebUrl(v)}
+            target="_blank"
+            rel="noreferrer noopener"
+            title="Открыть веб-интерфейс принтера"
+          >
+            {v}
+          </a>
+          <Button
+            type="text"
+            size="small"
+            icon={<CopyOutlined />}
+            title="Скопировать IP-адрес"
+            aria-label="Скопировать IP-адрес"
+            onClick={async () => {
+              try {
+                await copyText(v)
+                message.success('IP-адрес скопирован')
+              } catch {
+                message.error('Не удалось скопировать IP-адрес')
+              }
+            }}
+          />
+        </Space>
+      ) : <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
       title: 'Инв.№',

@@ -1,15 +1,32 @@
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
-from models import Branch, Department, Device, StockMovement, StockMovementType, WarehouseItem
+from inventory_numbers import (
+    inventory_number_lock, inventory_number_owner, next_inventory_number,
+    require_inventory_number,
+)
+from models import (
+    Branch, Department, StockMovement, StockMovementType,
+    WarehouseItem, Workplace, WorkplaceAssetAssignment,
+)
 from routers.auth import get_current_user
+from photo_storage import (
+    IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
+    delete_photo_directory, image_extension, photo_digest,
+    move_photo_directory, next_photo_filename, normalize_photo_filenames,
+    photo_directory, photo_file, photo_files,
+)
 from schemas import (
+    EquipmentPhotoRead,
     StockMovementCreate,
     StockMovementRead,
     WarehouseItemCreate,
@@ -27,6 +44,25 @@ def _get_item_or_404(db: Session, item_id: int) -> WarehouseItem:
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция не найдена")
     return item
+
+
+def _photo_item_or_404(db: Session, item_id: int) -> WarehouseItem:
+    item = _get_item_or_404(db, item_id)
+    if item.tracking_type != "asset" or not item.inventory_number:
+        raise HTTPException(
+            status_code=422,
+            detail="Фотографии доступны для оборудования с поштучным учётом и инвентарным номером",
+        )
+    return item
+
+
+def _photo_read(path: Path) -> EquipmentPhotoRead:
+    stat = path.stat()
+    return EquipmentPhotoRead(
+        filename=path.name,
+        size=stat.st_size,
+        created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
 
 
 def _normalize_optional(value: Optional[str]) -> Optional[str]:
@@ -86,13 +122,14 @@ def _validate_inventory_number(
     exclude_item_id: Optional[int] = None,
 ) -> None:
     if tracking_type == "asset" and not inventory_number:
-        raise HTTPException(status_code=422, detail="Для поштучного учёта укажите инвентарный номер")
+        raise HTTPException(status_code=422, detail="Для поштучного учёта нужен инвентарный номер")
     if not inventory_number:
         return
-    query = db.query(WarehouseItem.id).filter(WarehouseItem.inventory_number == inventory_number)
-    if exclude_item_id is not None:
-        query = query.filter(WarehouseItem.id != exclude_item_id)
-    if query.first() or db.query(Device.id).filter(Device.inventory_number == inventory_number).first():
+    try:
+        require_inventory_number(inventory_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if inventory_number_owner(db, inventory_number, exclude_item_id=exclude_item_id):
         raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
 
 
@@ -115,7 +152,7 @@ def _current_quantity(db: Session, item_id: int) -> int:
     return int(value or 0)
 
 
-def _item_read(item: WarehouseItem, quantity: int) -> WarehouseItemRead:
+def _item_read(item: WarehouseItem, quantity: int, workplace=None) -> WarehouseItemRead:
     return WarehouseItemRead(
         id=item.id,
         sku=item.sku,
@@ -144,6 +181,7 @@ def _item_read(item: WarehouseItem, quantity: int) -> WarehouseItemRead:
         min_quantity=item.min_quantity,
         current_quantity=quantity,
         notes=item.notes,
+        workplace=workplace,
     )
 
 
@@ -175,7 +213,154 @@ def get_item(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Позиция не найдена")
-    return _item_read(item, _current_quantity(db, item.id))
+    assignment = (
+        db.query(WorkplaceAssetAssignment)
+        .options(joinedload(WorkplaceAssetAssignment.workplace))
+        .filter(
+            WorkplaceAssetAssignment.item_id == item.id,
+            WorkplaceAssetAssignment.ended_at.is_(None),
+        )
+        .first()
+    )
+    return _item_read(
+        item,
+        _current_quantity(db, item.id),
+        workplace=assignment.workplace if assignment else None,
+    )
+
+
+@router.get("/items/{item_id}/photos", response_model=List[EquipmentPhotoRead])
+def list_item_photos(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    return [_photo_read(path) for path in photo_files(item.inventory_number)]
+
+
+@router.get("/items/{item_id}/photos/{filename}")
+def get_item_photo(
+    item_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    try:
+        path = photo_file(item.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    return FileResponse(
+        path,
+        media_type=IMAGE_TYPES[path.suffix.lower()],
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.post(
+    "/items/{item_id}/photos",
+    response_model=List[EquipmentPhotoRead],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_item_photos(
+    item_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    existing = photo_files(item.inventory_number)
+    if not files:
+        raise HTTPException(status_code=422, detail="Выберите фотографии")
+    if len(existing) + len(files) > MAX_PHOTOS_PER_ITEM:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Для одного оборудования можно сохранить не более {MAX_PHOTOS_PER_ITEM} фотографий",
+        )
+
+    directory = photo_directory(item.inventory_number)
+    directory.mkdir(parents=True, exist_ok=True)
+    normalize_photo_filenames(item.inventory_number)
+    saved: List[Path] = []
+    temporary: List[Path] = []
+    try:
+        for upload in files:
+            temp_path = directory / f".{uuid4().hex}.tmp"
+            temporary.append(temp_path)
+            size = 0
+            header = b""
+            with temp_path.open("wb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_PHOTO_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="Размер одной фотографии не должен превышать 10 МБ",
+                        )
+                    if len(header) < 16:
+                        header = (header + chunk)[:16]
+                    output.write(chunk)
+            extension = image_extension(header)
+            if extension is None:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Поддерживаются фотографии JPEG, PNG и WebP",
+                )
+            filename = next_photo_filename(item.inventory_number, extension)
+            target = directory / filename
+            temp_path.replace(target)
+            temporary.remove(temp_path)
+            saved.append(target)
+    except Exception:
+        for path in saved + temporary:
+            path.unlink(missing_ok=True)
+        if directory.exists() and not any(directory.iterdir()):
+            directory.rmdir()
+        raise
+    finally:
+        for upload in files:
+            await upload.close()
+
+    return [_photo_read(path) for path in photo_files(item.inventory_number)]
+
+
+@router.delete("/items/{item_id}/photos/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_item_photo(
+    item_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    item = _photo_item_or_404(db, item_id)
+    try:
+        path = photo_file(item.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    removed_digest = photo_digest(path)
+    path.unlink()
+    directory = path.parent
+    if not any(directory.iterdir()):
+        directory.rmdir()
+    else:
+        normalize_photo_filenames(item.inventory_number)
+    digest_still_exists = any(
+        photo_digest(candidate) == removed_digest
+        for candidate in photo_files(item.inventory_number)
+    )
+    if not digest_still_exists:
+        db.query(Workplace).filter(
+            Workplace.photo_item_id == item.id,
+            Workplace.photo_hash == removed_digest,
+        ).update({
+            Workplace.photo_item_id: None,
+            Workplace.photo_hash: None,
+        }, synchronize_session=False)
+        db.commit()
 
 
 @router.post("/items", response_model=WarehouseItemRead, status_code=status.HTTP_201_CREATED)
@@ -186,50 +371,54 @@ def create_item(
 ):
     _validate_location(db, payload.branch_id, payload.department_id)
     sku = _normalize_optional(payload.sku)
-    inventory_number = _normalize_optional(payload.inventory_number)
+    requested_inventory_number = _normalize_optional(payload.inventory_number)
     _validate_unique_sku(db, sku, payload.branch_id, payload.department_id)
-    _validate_inventory_number(db, inventory_number, payload.tracking_type)
-    item = WarehouseItem(
-        sku=sku,
-        name=_required_text(payload.name, "Наименование"),
-        category=_required_text(payload.category, "Категория"),
-        branch_id=payload.branch_id,
-        department_id=payload.department_id,
-        tracking_type=payload.tracking_type,
-        inventory_number=inventory_number,
-        serial_number=_normalize_optional(payload.serial_number),
-        manufacturer=_normalize_optional(payload.manufacturer),
-        model=_normalize_optional(payload.model),
-        placement=_required_text(payload.placement, "Местонахождение"),
-        condition=_required_text(payload.condition, "Состояние"),
-        compatible_printers=_normalize_optional(payload.compatible_printers),
-        monitor_diagonal=payload.monitor_diagonal,
-        color=_normalize_optional(payload.color),
-        ram_gb=payload.ram_gb,
-        processor=_normalize_optional(payload.processor),
-        graphics=_normalize_optional(payload.graphics),
-        storage_type=_normalize_optional(payload.storage_type),
-        storage_capacity_gb=payload.storage_capacity_gb,
-        unit=_required_text(payload.unit, "Единица"),
-        min_quantity=payload.min_quantity,
-        notes=_normalize_optional(payload.notes),
-    )
-    db.add(item)
-    try:
-        db.flush()
-        initial_quantity = 1 if payload.tracking_type == "asset" else payload.initial_quantity
-        if initial_quantity:
-            db.add(StockMovement(
-                item_id=item.id,
-                date=date.today(),
-                movement_type=StockMovementType.receipt,
-                quantity=initial_quantity,
-                notes="Начальный остаток",
-            ))
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Позиция с таким артикулом уже существует") from exc
+    with inventory_number_lock:
+        inventory_number = requested_inventory_number
+        if payload.tracking_type == "asset" and not inventory_number:
+            inventory_number = next_inventory_number(db)
+        _validate_inventory_number(db, inventory_number, payload.tracking_type)
+        item = WarehouseItem(
+            sku=sku,
+            name=_required_text(payload.name, "Наименование"),
+            category=_required_text(payload.category, "Категория"),
+            branch_id=payload.branch_id,
+            department_id=payload.department_id,
+            tracking_type=payload.tracking_type,
+            inventory_number=inventory_number,
+            serial_number=_normalize_optional(payload.serial_number),
+            manufacturer=_normalize_optional(payload.manufacturer),
+            model=_normalize_optional(payload.model),
+            placement=_required_text(payload.placement, "Местонахождение"),
+            condition=_required_text(payload.condition, "Состояние"),
+            compatible_printers=_normalize_optional(payload.compatible_printers),
+            monitor_diagonal=payload.monitor_diagonal,
+            color=_normalize_optional(payload.color),
+            ram_gb=payload.ram_gb,
+            processor=_normalize_optional(payload.processor),
+            graphics=_normalize_optional(payload.graphics),
+            storage_type=_normalize_optional(payload.storage_type),
+            storage_capacity_gb=payload.storage_capacity_gb,
+            unit=_required_text(payload.unit, "Единица"),
+            min_quantity=payload.min_quantity,
+            notes=_normalize_optional(payload.notes),
+        )
+        db.add(item)
+        try:
+            db.flush()
+            initial_quantity = 1 if payload.tracking_type == "asset" else payload.initial_quantity
+            if initial_quantity:
+                db.add(StockMovement(
+                    item_id=item.id,
+                    date=date.today(),
+                    movement_type=StockMovementType.receipt,
+                    quantity=initial_quantity,
+                    notes="Начальный остаток",
+                ))
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Позиция с таким артикулом уже существует") from exc
     db.refresh(item)
     return _item_read(item, 1 if payload.tracking_type == "asset" else payload.initial_quantity)
 
@@ -264,14 +453,36 @@ def update_item(
     _validate_unique_sku(db, sku, branch_id, department_id, exclude_item_id=item.id)
     tracking_type = data.get("tracking_type", item.tracking_type)
     inventory_number = data.get("inventory_number", item.inventory_number)
-    _validate_inventory_number(db, inventory_number, tracking_type, exclude_item_id=item.id)
-    for field, value in data.items():
-        setattr(item, field, value)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Позиция с таким артикулом уже существует") from exc
+    old_inventory_number = item.inventory_number
+    new_inventory_number = inventory_number
+    moved_photos = False
+    with inventory_number_lock:
+        _validate_inventory_number(db, inventory_number, tracking_type, exclude_item_id=item.id)
+        if new_inventory_number != old_inventory_number:
+            if photo_directory(new_inventory_number).exists():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Каталог нового инвентарного номера уже существует",
+                )
+            try:
+                moved_photos = move_photo_directory(old_inventory_number, new_inventory_number)
+            except FileExistsError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        for field, value in data.items():
+            setattr(item, field, value)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise HTTPException(status_code=409, detail="Позиция с такими данными уже существует") from exc
+        except Exception:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise
     db.refresh(item)
     return _item_read(item, _current_quantity(db, item.id))
 
@@ -290,6 +501,7 @@ def delete_item(
         )
     db.delete(item)
     db.commit()
+    delete_photo_directory(item.inventory_number)
 
 
 @router.get("/items/{item_id}/movements", response_model=List[StockMovementRead])

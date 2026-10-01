@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AutoComplete, Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, message,
+  Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, Upload, message,
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
-  PlusOutlined, QrcodeOutlined,
+  BarcodeOutlined, DownloadOutlined, PlusOutlined, UploadOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
-import { printQrLabel } from '../../utils/qr'
+import { printBarcodeLabel } from '../../utils/barcode'
 
-const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Принтеры']
-const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры'])
+const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Телефоны', 'Принтеры']
+const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры', 'Телефоны'])
 const PLACEMENTS = ['Склад/серверная', 'Ремонт/заправка', 'Рабочее место']
 const CONDITIONS = ['На складе', 'Рабочий', 'В ремонте', 'Требует ремонта', 'Списан']
 
@@ -67,7 +67,9 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
     try {
       if (editing) {
         await api.put(`/warehouse/items/${editing.id}`, values)
-        message.success('Позиция обновлена')
+        message.success(values.inventory_number && values.inventory_number !== editing.inventory_number
+          ? 'Позиция обновлена. Распечатайте новую этикетку'
+          : 'Позиция обновлена')
       } else {
         await api.post('/warehouse/items', values)
         message.success('Позиция добавлена на склад')
@@ -148,9 +150,23 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
           </Col>
           {trackingType === 'asset' && <>
             <Col span={12}>
-              <Form.Item name="inventory_number" label="Инвентарный №" rules={[{ required: true, message: 'Укажите инвентарный номер' }]}>
-                <Input />
-              </Form.Item>
+              {editing ? (
+                <Form.Item
+                  name="inventory_number"
+                  label="Инвентарный №"
+                  extra="После изменения нужно распечатать новую этикетку"
+                  rules={[
+                    { required: true, message: 'Введите инвентарный номер' },
+                    { pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' },
+                  ]}
+                >
+                  <Input placeholder="1-00001" />
+                </Form.Item>
+              ) : (
+                <Form.Item label="Инвентарный №">
+                  <Input value="Присвоится автоматически" disabled />
+                </Form.Item>
+              )}
             </Col>
             <Col span={12}>
               <Form.Item name="serial_number" label="Серийный №"><Input /></Form.Item>
@@ -381,6 +397,8 @@ export default function WarehousePage() {
   const [editing, setEditing] = useState(null)
   const [movement, setMovement] = useState(null)
   const [historyItem, setHistoryItem] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -476,13 +494,63 @@ export default function WarehousePage() {
     }
   }
 
+  const exportArchive = async () => {
+    setExporting(true)
+    try {
+      const response = await api.get('/inventory/archive', { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `inventory_export_${dayjs().format('YYYYMMDD-HHmmss')}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      message.success('Архив инвентаря сформирован')
+    } catch (err) {
+      message.error(apiErrorMessage(err, 'Не удалось экспортировать архив'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const importArchive = async (file) => {
+    setImporting(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post('/inventory/archive', form)
+      const summaryText = `Создано: ${data.created}, обновлено: ${data.updated}, фотографий: ${data.photos}`
+      if (data.errors?.length) {
+        Modal.warning({
+          title: 'Импорт завершён с замечаниями',
+          content: <Space direction="vertical" size={8}>
+            <Typography.Text>{summaryText}</Typography.Text>
+            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+              {data.errors.map((error, index) => <div key={`${index}-${error}`}>{error}</div>)}
+            </div>
+          </Space>,
+          width: 680,
+        })
+      } else {
+        message.success(`Импорт завершён. ${summaryText}`)
+      }
+      await load()
+    } catch (err) {
+      message.error(apiErrorMessage(err, 'Не удалось импортировать архив'))
+    } finally {
+      setImporting(false)
+    }
+    return Upload.LIST_IGNORE
+  }
+
   const printItem = async (item) => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/warehouse/items/${item.id}`,
         inventoryNumber: item.inventory_number || item.sku,
         title: item.branch?.name || 'Склад',
-        subtitle: [item.manufacturer, item.model || item.name].filter(Boolean).join(' '),
+        subtitle: item.name,
       })
     } catch (error) {
       message.error(error.message || 'Не удалось сформировать этикетку')
@@ -491,7 +559,7 @@ export default function WarehousePage() {
 
   const printDevice = async (device) => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/devices/${device.id}`,
         inventoryNumber: device.inventory_number,
         title: device.department?.branch?.name || 'Устройство',
@@ -510,6 +578,10 @@ export default function WarehousePage() {
     title: '№', key: 'number', width: 110,
     render: (_, row) => row.inventory_number || row.sku || row.id,
   }
+  const nameColumn = {
+    title: 'Наименование', dataIndex: 'name', ellipsis: true,
+    render: (text) => text || '—',
+  }
   const notesColumn = { title: 'Примечание', dataIndex: 'notes', ellipsis: true, render: (value) => value || '—' }
   const stateColumn = {
     title: 'Состояние', dataIndex: 'condition', width: 130,
@@ -526,7 +598,7 @@ export default function WarehousePage() {
           <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setMovement({ item: row, type: 'receipt' })}>Приход</Button>
           <Button size="small" icon={<MinusOutlined />} disabled={row.current_quantity <= 0} onClick={() => setMovement({ item: row, type: 'issue' })}>Отправить</Button>
         </>}
-        <Button size="small" icon={<QrcodeOutlined />} title="Распечатать QR" onClick={() => printItem(row)} />
+        <Button size="small" icon={<BarcodeOutlined />} title="Распечатать штрихкод" onClick={() => printItem(row)} />
         <Button size="small" icon={<HistoryOutlined />} title="История" onClick={() => setHistoryItem(row)} />
         <Button size="small" icon={<EditOutlined />} title="Редактировать" onClick={() => { setEditing(row); setItemModal(true) }} />
         <Popconfirm title="Удалить позицию?" onConfirm={() => removeItem(row.id)} okText="Удалить" cancelText="Отмена">
@@ -548,14 +620,14 @@ export default function WarehousePage() {
   ]
   const cartridgeColumns = [
     locationColumn, numberColumn,
-    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    nameColumn,
     { title: 'Для принтеров', dataIndex: 'compatible_printers', render: (value) => value || '—' },
     { title: 'Кол-во', dataIndex: 'current_quantity', width: 90, align: 'right' },
     itemActions,
   ]
   const monitorColumns = [
     locationColumn, numberColumn,
-    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    nameColumn,
     { title: 'Диагональ', dataIndex: 'monitor_diagonal', width: 100, render: (value) => value ? `${value}″` : '—' },
     { title: 'Цвет', dataIndex: 'color', width: 100, render: (value) => value || '—' },
     { title: 'S/N', dataIndex: 'serial_number', width: 140, render: (value) => value || '—' },
@@ -564,7 +636,7 @@ export default function WarehousePage() {
   const computerColumns = [
     locationColumn, numberColumn,
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
-    { title: 'Модель', key: 'model', render: (_, row) => row.model || row.name },
+    nameColumn,
     { title: 'ОЗУ', dataIndex: 'ram_gb', width: 75, render: (value) => value != null ? `${value} ГБ` : '—' },
     { title: 'ЦП', dataIndex: 'processor', width: 160, render: (value) => value || '—' },
     { title: 'ГПУ', dataIndex: 'graphics', width: 170, render: (value) => value || '—' },
@@ -579,7 +651,7 @@ export default function WarehousePage() {
     },
     { title: 'Инв. №', dataIndex: 'inventory_number', width: 120 },
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
-    { title: 'Модель', key: 'model', render: (_, row) => `${row.manufacturer} ${row.model}` },
+    { title: 'Наименование', key: 'name', render: (_, row) => `${row.manufacturer} ${row.model}` },
     { title: 'Тип принтера', dataIndex: 'device_type', width: 125, render: (value) => DEVICE_TYPE_LABELS[value] || value },
     { title: 'Счётчик', dataIndex: 'page_counter', width: 100, align: 'right', render: (value) => value ?? '—' },
     { title: 'Последний ремонт', key: 'last_repair', width: 135, render: (_, row) => lastRepair[row.id] ? dayjs(lastRepair[row.id]).format('DD.MM.YYYY') : '—' },
@@ -588,7 +660,7 @@ export default function WarehousePage() {
     {
       title: '', width: 120, fixed: 'right', align: 'right',
       render: (_, row) => <Space size={4}>
-        <Button size="small" icon={<QrcodeOutlined />} title="Распечатать QR" onClick={() => printDevice(row)} />
+        <Button size="small" icon={<BarcodeOutlined />} title="Распечатать штрихкод" onClick={() => printDevice(row)} />
         <Button size="small" type="primary" onClick={() => navigate(`/devices/${row.id}`)}>Открыть</Button>
       </Space>,
     },
@@ -604,7 +676,7 @@ export default function WarehousePage() {
       <div className="page-toolbar" style={{ marginBottom: 18 }}>
         <Typography.Title level={3} style={{ margin: 0 }}>Склад и оборудование</Typography.Title>
         <Input.Search
-          placeholder="Инвентарный №, модель, S/N"
+          placeholder="Инвентарный №, наименование, S/N"
           allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }}
         />
         <Select
@@ -618,6 +690,21 @@ export default function WarehousePage() {
           style={{ width: 190 }}
         />
         <div className="toolbar-actions">
+          <Button icon={<DownloadOutlined />} loading={exporting} onClick={exportArchive}>
+            Экспорт архива
+          </Button>
+          <Upload
+            accept=".zip,application/zip"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              importArchive(file)
+              return Upload.LIST_IGNORE
+            }}
+          >
+            <Button icon={<UploadOutlined />} loading={importing} disabled={importing}>
+              Импорт архива
+            </Button>
+          </Upload>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>
             Добавить позицию
           </Button>

@@ -202,6 +202,335 @@ body {
   font-weight: 400;
 }
 
+.workplace-detail-page {
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.workplace-main-card,
+.workplace-section {
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.03);
+}
+
+.workplace-section {
+  margin-top: 16px;
+  padding: 20px 22px;
+}
+
+.workplace-status-dot-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.workplace-status-occupied .inventory-status-dot {
+  background: #10b981;
+}
+
+.workplace-status-vacant .inventory-status-dot {
+  background: #3b82f6;
+}
+
+.workplace-status-inactive .inventory-status-dot {
+  background: #9ca3af;
+}
+
+.workplace-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.workplace-section-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.workplace-section-header p {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.workplace-assets {
+  border-top: 1px solid #f3f4f6;
+}
+
+.workplace-asset-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.workplace-asset-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: #4b5563;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.workplace-asset-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.workplace-asset-main strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.workplace-asset-main span {
+  color: #6b7280;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.workplace-detail-wide {
+  grid-column: span 2;
+}
+
+.workplace-profile {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 14px;
+}
+
+.workplace-avatar {
+  display: grid;
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  padding: 0;
+  place-items: center;
+  overflow: hidden;
+  color: #9ca3af;
+  font-size: 26px;
+  cursor: pointer;
+  background: #f3f4f6;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #d1d5db;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.workplace-avatar:hover:not(:disabled),
+.workplace-avatar:focus-visible {
+  box-shadow: 0 0 0 2px #1677ff;
+  transform: translateY(-1px);
+}
+
+.workplace-avatar:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.workplace-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.workplace-avatar-actions {
+  margin-top: 7px;
+}
+
+.workplace-avatar-actions .ant-btn {
+  height: 24px;
+  padding-inline: 4px;
+}
+
+.workplace-photo-preview {
+  display: block;
+  width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.workplace-photo-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.workplace-photo-option {
+  display: flex;
+  min-width: 0;
+  padding: 8px;
+  color: #111827;
+  text-align: left;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  flex-direction: column;
+  gap: 5px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.workplace-photo-option:hover:not(:disabled) {
+  border-color: #1677ff;
+  box-shadow: 0 3px 12px rgba(22, 119, 255, 0.12);
+}
+
+.workplace-photo-option:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.workplace-photo-option img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: #f3f4f6;
+  border-radius: 7px;
+}
+
+.workplace-photo-option span {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.workplace-photo-option small {
+  color: #6b7280;
+}
+
+.inventory-workplace-link {
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.equipment-photos-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.equipment-photos-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.equipment-photos-header p {
+  margin: 4px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.equipment-photos-loading {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+}
+
+.equipment-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.equipment-photo {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 9px;
+}
+
+.equipment-photo .ant-image,
+.equipment-photo .ant-image-img {
+  width: 100%;
+  height: 100%;
+}
+
+.equipment-photo .ant-image-img {
+  object-fit: cover;
+}
+
+.equipment-photo-delete {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.device-warranty-expired {
+  color: #dc2626;
+}
+
+.device-ip-value {
+  max-width: 100%;
+}
+
+.device-ip-value a {
+  overflow-wrap: anywhere;
+}
+
+.device-ip-value .ant-btn {
+  flex: none;
+}
+
+.device-counter-section .workplace-section-header {
+  margin-bottom: 10px;
+}
+
+.device-counter-content {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.device-counter-content strong {
+  color: #111827;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.device-counter-content span,
+.device-counter-checked {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.device-counter-checked {
+  margin-top: 6px;
+}
+
+.device-history-section .ant-tabs-nav {
+  margin-top: -4px;
+}
+
 @media (max-width: 1199px) {
   .inventory-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -352,6 +681,22 @@ body {
     width: 100%;
   }
 
+  .workplace-profile {
+    width: 100%;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .workplace-avatar {
+    width: 72px;
+    height: 72px;
+    flex-basis: 72px;
+  }
+
+  .workplace-profile .inventory-detail-heading {
+    flex: 1;
+  }
+
   .inventory-detail-title-row {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -376,6 +721,51 @@ body {
 
   .inventory-detail-field-wide {
     grid-column: span 1;
+  }
+
+  .workplace-section {
+    padding: 16px;
+    border-radius: 10px;
+  }
+
+  .workplace-section-header {
+    flex-direction: column;
+  }
+
+  .workplace-section-header > .ant-btn {
+    width: 100%;
+  }
+
+  .workplace-asset-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .workplace-asset-row > .ant-tag,
+  .workplace-asset-row > .ant-space {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .workplace-detail-wide {
+    grid-column: span 1;
+  }
+
+  .equipment-photos-header {
+    flex-direction: column;
+  }
+
+  .equipment-photos-header > .ant-btn {
+    width: 100%;
+  }
+
+  .equipment-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .workplace-photo-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 }
 

@@ -2,18 +2,32 @@ from __future__ import annotations
 
 import io
 from datetime import date, datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 from typing import List, Optional
 
 import openpyxl
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
+from inventory_numbers import (
+    inventory_number_lock, inventory_number_owner, next_inventory_number,
+    require_inventory_number,
+)
 from network import normalize_ip_address
+from photo_storage import (
+    IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
+    delete_photo_directory, image_extension, next_photo_filename,
+    move_photo_directory, normalize_photo_filenames,
+    photo_directory, photo_file, photo_files,
+)
 from printer_counter import read_counter
 from models import Branch, Department, Device, DeviceType, DeviceStatus
 from routers.auth import get_current_user
-from schemas import DeviceCreate, DeviceUpdate, DeviceRead
+from schemas import DeviceCreate, DeviceUpdate, DeviceRead, EquipmentPhotoRead
 
 router = APIRouter()
 
@@ -98,6 +112,15 @@ def _load_with_relations(db: Session):
     )
 
 
+def _photo_read(path: Path) -> EquipmentPhotoRead:
+    stat = path.stat()
+    return EquipmentPhotoRead(
+        filename=path.name,
+        size=stat.st_size,
+        created_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+    )
+
+
 @router.get("", response_model=List[DeviceRead])
 def list_devices(
     branch_id: Optional[int] = None,
@@ -128,14 +151,19 @@ def create_device(
     db: Session = Depends(get_db),
     _: dict = _auth,
 ):
-    if db.query(Device).filter(Device.inventory_number == payload.inventory_number).first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Inventory number '{payload.inventory_number}' already exists",
-        )
-    device = Device(**payload.model_dump())
-    db.add(device)
-    db.commit()
+    data = payload.model_dump()
+    try:
+        requested_number = require_inventory_number(data["inventory_number"]) if data["inventory_number"] else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with inventory_number_lock:
+        inventory_number = requested_number or next_inventory_number(db)
+        if inventory_number_owner(db, inventory_number):
+            raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
+        data["inventory_number"] = inventory_number
+        device = Device(**data)
+        db.add(device)
+        db.commit()
     db.refresh(device)
     return db.get(Device, device.id)
 
@@ -209,14 +237,19 @@ def import_devices(
 
     for row_num, row in enumerate(data_rows, start=2):
         inv = _cell(row, 0)
-        if not inv:
-            skipped += 1
-            continue
-
-        # Пропускаем дубликаты по инвентарному номеру
-        if db.query(Device.id).filter(Device.inventory_number == inv).scalar():
-            skipped += 1
-            continue
+        auto_inventory_number = not inv
+        if inv:
+            try:
+                inv = require_inventory_number(inv)
+            except ValueError as exc:
+                errors.append(f"Строка {row_num}: {exc}")
+                skipped += 1
+                continue
+            if inventory_number_owner(db, inv):
+                skipped += 1
+                continue
+        else:
+            inv = None
 
         manufacturer = _cell(row, 2)
         model_name = _cell(row, 3)
@@ -285,9 +318,8 @@ def import_devices(
             skipped += 1
             continue
 
-        device = Device(
+        device_data = dict(
             ip_address=ip_value,
-            inventory_number=inv,
             serial_number=_cell(row, 1),
             manufacturer=manufacturer,
             model=model_name,
@@ -299,7 +331,15 @@ def import_devices(
             status=device_status,
             notes=_cell(row, 11),
         )
-        db.add(device)
+        if auto_inventory_number:
+            with inventory_number_lock:
+                device = Device(inventory_number=next_inventory_number(db), **device_data)
+                db.add(device)
+                db.flush()
+        else:
+            device = Device(inventory_number=inv, **device_data)
+            db.add(device)
+            db.flush()
         created += 1
 
     db.commit()
@@ -319,6 +359,126 @@ def get_device(
     return device
 
 
+@router.get("/{device_id}/photos", response_model=List[EquipmentPhotoRead])
+def list_device_photos(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    return [_photo_read(path) for path in photo_files(device.inventory_number)]
+
+
+@router.get("/{device_id}/photos/{filename}")
+def get_device_photo(
+    device_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    try:
+        path = photo_file(device.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    return FileResponse(
+        path,
+        media_type=IMAGE_TYPES[path.suffix.lower()],
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.post(
+    "/{device_id}/photos",
+    response_model=List[EquipmentPhotoRead],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_device_photos(
+    device_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    inventory_number = device.inventory_number
+    existing = photo_files(inventory_number)
+    if not files:
+        raise HTTPException(status_code=422, detail="Выберите фотографии")
+    if len(existing) + len(files) > MAX_PHOTOS_PER_ITEM:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Для одного устройства можно сохранить не более {MAX_PHOTOS_PER_ITEM} фотографий",
+        )
+
+    directory = photo_directory(inventory_number)
+    directory.mkdir(parents=True, exist_ok=True)
+    normalize_photo_filenames(inventory_number)
+    saved: List[Path] = []
+    temporary: List[Path] = []
+    try:
+        for upload in files:
+            temp_path = directory / f".{uuid4().hex}.tmp"
+            temporary.append(temp_path)
+            size = 0
+            header = b""
+            with temp_path.open("wb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_PHOTO_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail="Размер одной фотографии не должен превышать 10 МБ",
+                        )
+                    if len(header) < 16:
+                        header = (header + chunk)[:16]
+                    output.write(chunk)
+            extension = image_extension(header)
+            if extension is None:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Поддерживаются фотографии JPEG, PNG и WebP",
+                )
+            target = directory / next_photo_filename(inventory_number, extension)
+            temp_path.replace(target)
+            temporary.remove(temp_path)
+            saved.append(target)
+    except Exception:
+        for path in saved + temporary:
+            path.unlink(missing_ok=True)
+        if directory.exists() and not any(directory.iterdir()):
+            directory.rmdir()
+        raise
+    finally:
+        for upload in files:
+            await upload.close()
+
+    return [_photo_read(path) for path in photo_files(inventory_number)]
+
+
+@router.delete("/{device_id}/photos/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_device_photo(
+    device_id: int,
+    filename: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    device = _get_or_404(db, device_id)
+    try:
+        path = photo_file(device.inventory_number, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Фотография не найдена")
+    path.unlink()
+    directory = path.parent
+    if not any(directory.iterdir()):
+        directory.rmdir()
+    else:
+        normalize_photo_filenames(device.inventory_number)
+
+
 @router.put("/{device_id}", response_model=DeviceRead)
 def update_device(
     device_id: int,
@@ -331,15 +491,48 @@ def update_device(
     if "ip_address" in data and data["ip_address"] != device.ip_address:
         device.page_counter = None
         device.counter_checked_at = None
-    if "inventory_number" in data and data["inventory_number"] != device.inventory_number:
-        if db.query(Device.id).filter(Device.inventory_number == data["inventory_number"]).scalar():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Inventory number '{data['inventory_number']}' already exists",
-            )
-    for field, value in data.items():
-        setattr(device, field, value)
-    db.commit()
+    old_inventory_number = device.inventory_number
+    new_inventory_number = old_inventory_number
+    if "inventory_number" in data:
+        try:
+            new_inventory_number = require_inventory_number(data["inventory_number"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        data["inventory_number"] = new_inventory_number
+
+    moved_photos = False
+    with inventory_number_lock:
+        if new_inventory_number != old_inventory_number:
+            if inventory_number_owner(
+                db,
+                new_inventory_number,
+                exclude_device_id=device.id,
+            ):
+                raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
+            if photo_directory(new_inventory_number).exists():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Каталог нового инвентарного номера уже существует",
+                )
+            try:
+                moved_photos = move_photo_directory(old_inventory_number, new_inventory_number)
+            except FileExistsError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        for field, value in data.items():
+            setattr(device, field, value)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise HTTPException(status_code=409, detail="Указанные данные уже используются") from exc
+        except Exception:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise
     return _load_with_relations(db).filter(Device.id == device_id).first()
 
 
@@ -381,5 +574,7 @@ def delete_device(
     _: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
+    inventory_number = device.inventory_number
     db.delete(device)
     db.commit()
+    delete_photo_directory(inventory_number)

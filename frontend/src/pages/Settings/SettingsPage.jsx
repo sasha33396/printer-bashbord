@@ -5,6 +5,7 @@ import {
 } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import api from '../../api/api'
+import EmployeesTab from './EmployeesTab'
 
 // ---------------------------------------------------------------------------
 // BranchesTab
@@ -435,6 +436,7 @@ function ManufacturersTab() {
 const TABS = [
   { key: 'branches',      label: 'Филиалы',       children: <BranchesTab /> },
   { key: 'departments',   label: 'Отделы',         children: <DepartmentsTab /> },
+  { key: 'employees',     label: 'Сотрудники',      children: <EmployeesTab /> },
   { key: 'manufacturers', label: 'Производители',  children: <ManufacturersTab /> },
 ]
 

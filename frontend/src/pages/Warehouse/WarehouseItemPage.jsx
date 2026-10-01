@@ -3,7 +3,8 @@ import { ArrowLeftOutlined, PrinterOutlined } from '@ant-design/icons'
 import { Button, Spin, message } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../api/api'
-import { printQrLabel } from '../../utils/qr'
+import { printBarcodeLabel } from '../../utils/barcode'
+import EquipmentPhotos from '../../components/EquipmentPhotos'
 
 const CATEGORY_LABELS = {
   'Компьютеры': 'Компьютер',
@@ -11,6 +12,7 @@ const CATEGORY_LABELS = {
   'Картриджи': 'Картридж',
   'Мыши': 'Мышь',
   'Клавиатуры': 'Клавиатура',
+  'Телефоны': 'Телефон',
 }
 
 function DetailField({ label, value, wide = false }) {
@@ -43,11 +45,11 @@ export default function WarehouseItemPage() {
 
   const printLabel = async () => {
     try {
-      await printQrLabel({
+      await printBarcodeLabel({
         path: `/warehouse/items/${item.id}`,
         inventoryNumber: item.inventory_number || item.sku,
         title: item.branch?.name || 'Склад',
-        subtitle: [item.manufacturer, item.model || item.name].filter(Boolean).join(' '),
+        subtitle: item.name,
       })
     } catch (error) {
       message.error(error.message || 'Не удалось сформировать этикетку')
@@ -114,7 +116,7 @@ export default function WarehouseItemPage() {
             </div>
           </div>
           <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>
-            Распечатать QR
+            Распечатать штрихкод
           </Button>
         </header>
 
@@ -125,6 +127,18 @@ export default function WarehouseItemPage() {
           <DetailField label="Отдел" value={item.department?.name} />
           <DetailField label="Местонахождение" value={item.placement} />
           <DetailField label="Способ учёта" value={item.tracking_type === 'asset' ? 'Поштучный' : 'По количеству'} />
+          <DetailField
+            label="Рабочее место"
+            value={item.workplace && (
+              <Button
+                className="inventory-workplace-link"
+                type="link"
+                onClick={() => navigate(`/workplaces/${item.workplace.id}`)}
+              >
+                {item.workplace.name}
+              </Button>
+            )}
+          />
           <DetailField label="Производитель" value={item.manufacturer} />
           <DetailField label="Модель" value={item.model} />
           <DetailField label="Серийный №" value={item.serial_number} />
@@ -140,6 +154,11 @@ export default function WarehouseItemPage() {
           </div>
         </>}
       </section>
+      {item.tracking_type === 'asset' && (
+        <section className="workplace-section">
+          <EquipmentPhotos itemId={item.id} />
+        </section>
+      )}
     </div>
   )
 }

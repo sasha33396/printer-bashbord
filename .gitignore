@@ -37,6 +37,7 @@ pnpm-debug.log*
 
 dist/
 build/
+equipment_photos/
 .next/
 .nuxt/
 .vite/
