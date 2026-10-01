@@ -19,7 +19,15 @@ const TARGET_PATHS = {
   W: (id) => `/workplaces/${id}`,
 }
 
-export function barcodeValue(path) {
+export function inventoryBarcodeValue(value) {
+  const normalized = String(value || '').trim().toUpperCase()
+  return /^1-(?!00000)\d{5}$/.test(normalized) ? normalized : null
+}
+
+export function barcodeValue(path, inventoryNumber) {
+  const inventoryValue = inventoryBarcodeValue(inventoryNumber)
+  if (inventoryValue) return inventoryValue
+
   const pathname = String(path || '').split(/[?#]/, 1)[0]
   for (const type of PATH_TYPES) {
     const match = pathname.match(type.pattern)
@@ -39,7 +47,7 @@ export async function printBarcodeLabel({ path, inventoryNumber, title, subtitle
   if (!printWindow) throw new Error('Браузер заблокировал окно печати')
 
   try {
-    const value = barcodeValue(path)
+    const value = barcodeValue(path, inventoryNumber)
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     JsBarcode(svg, value, {
       format: 'CODE128',

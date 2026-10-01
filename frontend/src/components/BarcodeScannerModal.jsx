@@ -7,7 +7,8 @@ import {
   BarcodeFormat, BinaryBitmap, DecodeHintType, GlobalHistogramBinarizer,
   HTMLCanvasElementLuminanceSource, MultiFormatOneDReader,
 } from '@zxing/library'
-import { barcodeTargetPath } from '../utils/barcode'
+import api from '../api/api'
+import { barcodeTargetPath, inventoryBarcodeValue } from '../utils/barcode'
 
 const hints = new Map()
 hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128])
@@ -120,9 +121,19 @@ export default function BarcodeScannerModal({ open, onClose }) {
     if (open) setCode('')
   }, [open])
 
-  const openCard = (value) => {
-    const path = barcodeTargetPath(value)
-    if (!path) throw new Error('Это не штрихкод Printer Dashboard')
+  const openCard = async (value) => {
+    let path = barcodeTargetPath(value)
+    if (!path) {
+      const inventoryNumber = inventoryBarcodeValue(value)
+      if (!inventoryNumber) throw new Error('Это не инвентарный штрихкод Printer Dashboard')
+      try {
+        const { data } = await api.get(`/inventory/lookup/${encodeURIComponent(inventoryNumber)}`)
+        path = data.path
+      } catch (error) {
+        const detail = error.response?.data?.detail
+        throw new Error(typeof detail === 'string' ? detail : 'Оборудование с таким номером не найдено')
+      }
+    }
     onClose()
     navigate(path)
   }
@@ -131,7 +142,7 @@ export default function BarcodeScannerModal({ open, onClose }) {
     if (!file) return
     setReading(true)
     try {
-      openCard(await decodePhoto(file))
+      await openCard(await decodePhoto(file))
     } catch (error) {
       const notFound = error.name === 'NotFoundException'
         || error.name === 'ChecksumException'
@@ -146,9 +157,9 @@ export default function BarcodeScannerModal({ open, onClose }) {
     }
   }
 
-  const submitCode = (value = code) => {
+  const submitCode = async (value = code) => {
     try {
-      openCard(value)
+      await openCard(value)
     } catch (error) {
       message.error(error.message)
     }
@@ -189,7 +200,7 @@ export default function BarcodeScannerModal({ open, onClose }) {
           onChange={(event) => setCode(event.target.value)}
           onSearch={submitCode}
           enterButton={<BarcodeOutlined />}
-          placeholder="PD-D-123 — ввод или ручной сканер"
+          placeholder="1-00038 — ввод или ручной сканер"
           size="large"
           autoFocus
         />

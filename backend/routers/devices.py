@@ -9,6 +9,7 @@ from typing import List, Optional
 import openpyxl
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
@@ -20,7 +21,8 @@ from network import normalize_ip_address
 from photo_storage import (
     IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
     delete_photo_directory, image_extension, next_photo_filename,
-    normalize_photo_filenames, photo_directory, photo_file, photo_files,
+    move_photo_directory, normalize_photo_filenames,
+    photo_directory, photo_file, photo_files,
 )
 from printer_counter import read_counter
 from models import Branch, Department, Device, DeviceType, DeviceStatus
@@ -489,14 +491,48 @@ def update_device(
     if "ip_address" in data and data["ip_address"] != device.ip_address:
         device.page_counter = None
         device.counter_checked_at = None
-    if "inventory_number" in data and data["inventory_number"] != device.inventory_number:
-        raise HTTPException(
-            status_code=409,
-            detail="Инвентарный номер назначается автоматически и не редактируется",
-        )
-    for field, value in data.items():
-        setattr(device, field, value)
-    db.commit()
+    old_inventory_number = device.inventory_number
+    new_inventory_number = old_inventory_number
+    if "inventory_number" in data:
+        try:
+            new_inventory_number = require_inventory_number(data["inventory_number"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        data["inventory_number"] = new_inventory_number
+
+    moved_photos = False
+    with inventory_number_lock:
+        if new_inventory_number != old_inventory_number:
+            if inventory_number_owner(
+                db,
+                new_inventory_number,
+                exclude_device_id=device.id,
+            ):
+                raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
+            if photo_directory(new_inventory_number).exists():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Каталог нового инвентарного номера уже существует",
+                )
+            try:
+                moved_photos = move_photo_directory(old_inventory_number, new_inventory_number)
+            except FileExistsError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        for field, value in data.items():
+            setattr(device, field, value)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise HTTPException(status_code=409, detail="Указанные данные уже используются") from exc
+        except Exception:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise
     return _load_with_relations(db).filter(Device.id == device_id).first()
 
 

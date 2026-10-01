@@ -26,6 +26,7 @@ from photo_storage import (
     normalize_photo_filenames, photo_directory, photo_files,
 )
 from routers.auth import get_current_user
+from schemas import InventoryLookupRead
 
 
 router = APIRouter()
@@ -43,6 +44,38 @@ def _date_value(value):
 
 def _enum_value(value):
     return value.value if hasattr(value, "value") else value
+
+
+@router.get("/lookup/{inventory_number}", response_model=InventoryLookupRead)
+def lookup_inventory_number(
+    inventory_number: str,
+    db: Session = Depends(get_db),
+    _: dict = _auth,
+):
+    try:
+        value = require_inventory_number(inventory_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    device = db.query(Device.id).filter(Device.inventory_number == value).first()
+    if device:
+        return InventoryLookupRead(
+            entity_type="device",
+            id=device.id,
+            inventory_number=value,
+            path=f"/devices/{device.id}",
+        )
+
+    item = db.query(WarehouseItem.id).filter(WarehouseItem.inventory_number == value).first()
+    if item:
+        return InventoryLookupRead(
+            entity_type="warehouse_item",
+            id=item.id,
+            inventory_number=value,
+            path=f"/warehouse/items/{item.id}",
+        )
+
+    raise HTTPException(status_code=404, detail="Оборудование с таким инвентарным номером не найдено")
 
 
 def _device_card(device: Device) -> dict:

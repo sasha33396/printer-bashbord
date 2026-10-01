@@ -1,5 +1,5 @@
 from datetime import date as Date, datetime as DateTime
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from network import normalize_ip_address
@@ -136,6 +136,13 @@ class DeviceBrief(BaseModel):
     model: str
     device_type: DeviceType
     status: DeviceStatus
+
+
+class InventoryLookupRead(BaseModel):
+    entity_type: Literal["device", "warehouse_item"]
+    id: int
+    inventory_number: str
+    path: str
 
 
 # ---------------------------------------------------------------------------

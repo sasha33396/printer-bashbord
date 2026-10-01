@@ -22,7 +22,7 @@ from routers.auth import get_current_user
 from photo_storage import (
     IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
     delete_photo_directory, image_extension, photo_digest,
-    next_photo_filename, normalize_photo_filenames,
+    move_photo_directory, next_photo_filename, normalize_photo_filenames,
     photo_directory, photo_file, photo_files,
 )
 from schemas import (
@@ -121,6 +121,8 @@ def _validate_inventory_number(
     tracking_type: str,
     exclude_item_id: Optional[int] = None,
 ) -> None:
+    if tracking_type == "asset" and not inventory_number:
+        raise HTTPException(status_code=422, detail="Для поштучного учёта нужен инвентарный номер")
     if not inventory_number:
         return
     try:
@@ -451,19 +453,36 @@ def update_item(
     _validate_unique_sku(db, sku, branch_id, department_id, exclude_item_id=item.id)
     tracking_type = data.get("tracking_type", item.tracking_type)
     inventory_number = data.get("inventory_number", item.inventory_number)
-    if inventory_number != item.inventory_number:
-        raise HTTPException(
-            status_code=409,
-            detail="Инвентарный номер назначается автоматически и не редактируется",
-        )
-    _validate_inventory_number(db, inventory_number, tracking_type, exclude_item_id=item.id)
-    for field, value in data.items():
-        setattr(item, field, value)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Позиция с таким артикулом уже существует") from exc
+    old_inventory_number = item.inventory_number
+    new_inventory_number = inventory_number
+    moved_photos = False
+    with inventory_number_lock:
+        _validate_inventory_number(db, inventory_number, tracking_type, exclude_item_id=item.id)
+        if new_inventory_number != old_inventory_number:
+            if photo_directory(new_inventory_number).exists():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Каталог нового инвентарного номера уже существует",
+                )
+            try:
+                moved_photos = move_photo_directory(old_inventory_number, new_inventory_number)
+            except FileExistsError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        for field, value in data.items():
+            setattr(item, field, value)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise HTTPException(status_code=409, detail="Позиция с такими данными уже существует") from exc
+        except Exception:
+            db.rollback()
+            if moved_photos:
+                move_photo_directory(new_inventory_number, old_inventory_number)
+            raise
     db.refresh(item)
     return _item_read(item, _current_quantity(db, item.id))
 

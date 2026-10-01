@@ -67,7 +67,9 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
     try {
       if (editing) {
         await api.put(`/warehouse/items/${editing.id}`, values)
-        message.success('Позиция обновлена')
+        message.success(values.inventory_number && values.inventory_number !== editing.inventory_number
+          ? 'Позиция обновлена. Распечатайте новую этикетку'
+          : 'Позиция обновлена')
       } else {
         await api.post('/warehouse/items', values)
         message.success('Позиция добавлена на склад')
@@ -148,12 +150,23 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
           </Col>
           {trackingType === 'asset' && <>
             <Col span={12}>
-              <Form.Item label="Инвентарный №">
-                <Input
-                  value={editing?.inventory_number || 'Присвоится автоматически'}
-                  disabled
-                />
-              </Form.Item>
+              {editing ? (
+                <Form.Item
+                  name="inventory_number"
+                  label="Инвентарный №"
+                  extra="После изменения нужно распечатать новую этикетку"
+                  rules={[
+                    { required: true, message: 'Введите инвентарный номер' },
+                    { pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' },
+                  ]}
+                >
+                  <Input placeholder="1-00001" />
+                </Form.Item>
+              ) : (
+                <Form.Item label="Инвентарный №">
+                  <Input value="Присвоится автоматически" disabled />
+                </Form.Item>
+              )}
             </Col>
             <Col span={12}>
               <Form.Item name="serial_number" label="Серийный №"><Input /></Form.Item>
