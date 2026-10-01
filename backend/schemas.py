@@ -2,13 +2,14 @@ from datetime import date as Date, datetime as DateTime
 from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from network import normalize_ip_address
+from network import normalize_ip_address, normalize_mac_address
 from models import (
     DeviceType, DeviceStatus, RepairType, RepairStatus, ItemType, StockMovementType,
     WorkplaceStatus,
 )
 
 IPAddress = Annotated[Optional[str], BeforeValidator(normalize_ip_address)]
+MACAddress = Annotated[Optional[str], BeforeValidator(normalize_mac_address)]
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +282,8 @@ class WarehouseItemCreate(BaseModel):
     serial_number: Optional[str] = Field(default=None, max_length=100)
     manufacturer: Optional[str] = Field(default=None, max_length=255)
     model: Optional[str] = Field(default=None, max_length=255)
+    ip_address: IPAddress = None
+    mac_address: MACAddress = None
     placement: str = Field(default="Склад/серверная", min_length=1, max_length=100)
     condition: str = Field(default="На складе", min_length=1, max_length=50)
     compatible_printers: Optional[str] = None
@@ -308,6 +311,8 @@ class WarehouseItemUpdate(BaseModel):
     serial_number: Optional[str] = Field(default=None, max_length=100)
     manufacturer: Optional[str] = Field(default=None, max_length=255)
     model: Optional[str] = Field(default=None, max_length=255)
+    ip_address: IPAddress = None
+    mac_address: MACAddress = None
     placement: Optional[str] = Field(default=None, min_length=1, max_length=100)
     condition: Optional[str] = Field(default=None, min_length=1, max_length=50)
     compatible_printers: Optional[str] = None
@@ -352,6 +357,8 @@ class WarehouseItemRead(BaseModel):
     serial_number: Optional[str] = None
     manufacturer: Optional[str] = None
     model: Optional[str] = None
+    ip_address: Optional[str] = None
+    mac_address: Optional[str] = None
     placement: str
     condition: str
     compatible_printers: Optional[str] = None

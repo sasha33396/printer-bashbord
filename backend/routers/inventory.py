@@ -17,6 +17,7 @@ from starlette.background import BackgroundTask
 from database import get_db
 from equipment_history import actor_name, add_device_event, add_item_event
 from inventory_numbers import inventory_number_lock, inventory_number_owner, require_inventory_number
+from network import normalize_ip_address, normalize_mac_address
 from models import (
     Branch, ConsumableLog, Department, Device, DeviceStatus, DeviceType,
     ItemType, Manufacturer, RepairRecord, RepairStatus, RepairType, RepairWorkItem, StockMovement,
@@ -174,6 +175,8 @@ def _warehouse_card(item: WarehouseItem, db: Session) -> dict:
             "serial_number": item.serial_number,
             "manufacturer": item.manufacturer,
             "model": item.model,
+            "ip_address": item.ip_address,
+            "mac_address": item.mac_address,
             "placement": item.placement,
             "condition": item.condition,
             "compatible_printers": item.compatible_printers,
@@ -212,6 +215,8 @@ def _card_text(card: dict) -> str:
         f"Инвентарный номер: {card['inventory_number']}",
         f"Наименование: {title or '—'}",
         f"Серийный номер: {data.get('serial_number') or '—'}",
+        f"IP-адрес: {data.get('ip_address') or '—'}",
+        *([f"MAC-адрес: {data.get('mac_address') or '—'}"] if "mac_address" in data else []),
         f"Филиал: {data.get('branch') or '—'}",
         f"Отдел: {data.get('department') or '—'}",
         f"Местонахождение: {data.get('placement') or data.get('location') or '—'}",
@@ -411,6 +416,8 @@ def _import_warehouse_item(db: Session, inventory_number: str, data: dict) -> tu
     item.serial_number = data.get("serial_number")
     item.manufacturer = data.get("manufacturer")
     item.model = data.get("model")
+    item.ip_address = normalize_ip_address(data.get("ip_address"))
+    item.mac_address = normalize_mac_address(data.get("mac_address"))
     item.placement = data.get("placement") or "Склад/серверная"
     item.condition = data.get("condition") or "На складе"
     item.compatible_printers = data.get("compatible_printers")

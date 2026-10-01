@@ -14,6 +14,7 @@ import { printBarcodeLabel } from '../../utils/barcode'
 
 const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Телефоны', 'Принтеры']
 const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры', 'Телефоны'])
+const NETWORK_CATEGORIES = new Set(['Компьютеры', 'Телефоны'])
 const PLACEMENTS = ['Склад/серверная', 'Ремонт/заправка', 'Рабочее место']
 const CONDITIONS = ['На складе', 'Рабочий', 'В ремонте', 'Требует ремонта', 'Списан']
 
@@ -188,6 +189,25 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
           {selectedCategory === 'Мониторы' && <>
             <Col span={12}><Form.Item name="monitor_diagonal" label="Диагональ, дюймы"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={12}><Form.Item name="color" label="Цвет"><Input /></Form.Item></Col>
+          </>}
+          {NETWORK_CATEGORIES.has(selectedCategory) && <>
+            <Col span={12}>
+              <Form.Item name="ip_address" label="IP-адрес">
+                <Input placeholder="172.16.51.73" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="mac_address"
+                label="MAC-адрес"
+                rules={[{
+                  pattern: /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{12}$|^[0-9A-Fa-f]{4}(\.[0-9A-Fa-f]{4}){2}$/,
+                  message: 'Формат: AA:BB:CC:DD:EE:FF',
+                }]}
+              >
+                <Input placeholder="AA:BB:CC:DD:EE:FF" />
+              </Form.Item>
+            </Col>
           </>}
           {selectedCategory === 'Компьютеры' && <>
             <Col span={8}><Form.Item name="ram_gb" label="ОЗУ, ГБ"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
@@ -460,7 +480,8 @@ export default function WarehousePage() {
       if (!query) return true
       return [
         item.name, item.sku, item.inventory_number, item.serial_number, item.manufacturer,
-        item.model, item.category, item.branch?.name, item.department?.name, item.placement,
+        item.model, item.ip_address, item.mac_address, item.category,
+        item.branch?.name, item.department?.name, item.placement,
       ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
     })
   }, [itemsAtLocation, search, category])
@@ -652,11 +673,22 @@ export default function WarehousePage() {
     locationColumn, numberColumn,
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
     nameColumn,
+    { title: 'IP-адрес', dataIndex: 'ip_address', width: 130, render: (value) => value || '—' },
+    { title: 'MAC-адрес', dataIndex: 'mac_address', width: 155, render: (value) => value || '—' },
     { title: 'ОЗУ', dataIndex: 'ram_gb', width: 75, render: (value) => value != null ? `${value} ГБ` : '—' },
     { title: 'ЦП', dataIndex: 'processor', width: 160, render: (value) => value || '—' },
     { title: 'ГПУ', dataIndex: 'graphics', width: 170, render: (value) => value || '—' },
     { title: 'Накопитель', dataIndex: 'storage_type', width: 105, render: (value) => value || '—' },
     { title: 'Объём', dataIndex: 'storage_capacity_gb', width: 90, render: (value) => value != null ? `${value} ГБ` : '—' },
+    stateColumn, notesColumn, itemActions,
+  ]
+  const phoneColumns = [
+    locationColumn, numberColumn, nameColumn,
+    { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
+    { title: 'IP-адрес', dataIndex: 'ip_address', width: 130, render: (value) => value || '—' },
+    { title: 'MAC-адрес', dataIndex: 'mac_address', width: 155, render: (value) => value || '—' },
+    { title: 'Производитель', dataIndex: 'manufacturer', width: 140, render: (value) => value || '—' },
+    { title: 'Модель', dataIndex: 'model', width: 140, render: (value) => value || '—' },
     stateColumn, notesColumn, itemActions,
   ]
   const printerColumns = [
@@ -684,14 +716,15 @@ export default function WarehousePage() {
   const selectedColumns = category === 'Картриджи' ? cartridgeColumns
     : category === 'Мониторы' ? monitorColumns
       : category === 'Компьютеры' ? computerColumns
-        : genericColumns
+        : category === 'Телефоны' ? phoneColumns
+          : genericColumns
 
   return (
     <>
       <div className="page-toolbar" style={{ marginBottom: 18 }}>
         <Typography.Title level={3} style={{ margin: 0 }}>Оборудование</Typography.Title>
         <Input.Search
-          placeholder="Инвентарный №, наименование, S/N"
+          placeholder="Инв. №, наименование, IP, MAC"
           allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }}
         />
         <Select

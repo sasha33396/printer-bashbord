@@ -58,6 +58,8 @@ def initialize_database():
             ("serial_number", "VARCHAR(100)"),
             ("manufacturer", "VARCHAR(255)"),
             ("model", "VARCHAR(255)"),
+            ("ip_address", "VARCHAR(45)"),
+            ("mac_address", "VARCHAR(17)"),
             ("placement", "VARCHAR(100) NOT NULL DEFAULT 'Склад/серверная'"),
             ("condition", "VARCHAR(50) NOT NULL DEFAULT 'На складе'"),
             ("compatible_printers", "TEXT"),
@@ -94,6 +96,14 @@ def initialize_database():
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_warehouse_items_serial_number "
             "ON warehouse_items (serial_number)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_ip_address "
+            "ON warehouse_items (ip_address)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_mac_address "
+            "ON warehouse_items (mac_address)"
         ))
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_warehouse_items_is_archived "

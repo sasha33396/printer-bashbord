@@ -179,6 +179,8 @@ class WarehouseItem(Base):
     serial_number = Column(String(100), nullable=True, index=True)
     manufacturer = Column(String(255), nullable=True)
     model = Column(String(255), nullable=True)
+    ip_address = Column(String(45), nullable=True, index=True)
+    mac_address = Column(String(17), nullable=True, index=True)
     placement = Column(String(100), nullable=False, default="Склад/серверная")
     condition = Column(String(50), nullable=False, default="На складе")
     compatible_printers = Column(Text, nullable=True)

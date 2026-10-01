@@ -241,6 +241,10 @@ export default function WarehouseItemPage() {
         <DetailField label="Ответственный" value={item.responsible_person} />
         <DetailField label="Производитель" value={item.manufacturer} />
         <DetailField label="Модель" value={item.model} />
+        {['Компьютеры', 'Телефоны'].includes(item.category) && <>
+          <DetailField label="IP-адрес" value={item.ip_address} />
+          <DetailField label="MAC-адрес" value={item.mac_address} />
+        </>}
         <DetailField label="Серийный №" value={item.serial_number} />
         <DetailField label="Артикул" value={item.sku} />
       </div>
