@@ -2,9 +2,9 @@ import enum
 from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean, Column, Integer, String, Float, Date, DateTime, Text,
-    ForeignKey, UniqueConstraint, Enum as SAEnum,
+    ForeignKey, UniqueConstraint, Enum as SAEnum, Index, func,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from database import Base
 
@@ -189,6 +189,8 @@ class WarehouseItem(Base):
     ram_gb = Column(Integer, nullable=True)
     processor = Column(String(255), nullable=True)
     graphics = Column(String(255), nullable=True)
+    os_name = Column(String(255), nullable=True)
+    os_version = Column(String(100), nullable=True)
     storage_type = Column(String(50), nullable=True)
     storage_capacity_gb = Column(Integer, nullable=True)
     unit = Column(String(30), nullable=False, default="шт.")
@@ -222,6 +224,10 @@ class Employee(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     full_name = Column(String(255), nullable=False, index=True)
+    ad_login = Column(String(255), nullable=True)
+    ad_domain = Column(String(255), nullable=True)
+    ad_guid = Column(String(36), nullable=True)
+    ad_sync_values = Column(Text, nullable=True)
     position = Column(String(255), nullable=True)
     branch_id = Column(Integer, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -240,6 +246,7 @@ class Workplace(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, index=True)
+    normalized_name = Column(String(255), nullable=True)
     branch_id = Column(Integer, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
     location = Column(String(255), nullable=True)
@@ -260,6 +267,11 @@ class Workplace(Base):
         cascade="all, delete-orphan",
         order_by="WorkplaceAssetAssignment.assigned_at.desc()",
     )
+
+    @validates("name")
+    def normalize_name(self, key, value):
+        self.normalized_name = value.strip().casefold()
+        return value
 
 
 class WorkplaceAssetAssignment(Base):
@@ -314,3 +326,43 @@ class EquipmentEvent(Base):
     from_value = Column(String(500), nullable=True)
     to_value = Column(String(500), nullable=True)
     changes_json = Column(Text, nullable=True)
+
+
+class OcsAssetLink(Base):
+    __tablename__ = "ocs_asset_links"
+    __table_args__ = (
+        UniqueConstraint("source_key", "asset_kind", "external_id", name="uq_ocs_asset_source"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    source_key = Column(String(100), nullable=False)
+    asset_kind = Column(String(20), nullable=False)
+    external_id = Column(String(100), nullable=False)
+    item_id = Column(Integer, ForeignKey("warehouse_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    workplace_id = Column(Integer, ForeignKey("workplaces.id", ondelete="SET NULL"), nullable=True)
+    last_inventory_at = Column(DateTime(timezone=True), nullable=True)
+    sync_values = Column(Text, nullable=True)
+
+
+class OcsImportRun(Base):
+    __tablename__ = "ocs_import_runs"
+
+    id = Column(String(36), primary_key=True)
+    source_key = Column(String(100), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    actor = Column(String(255), nullable=True)
+    report_json = Column(Text, nullable=False)
+
+
+Index(
+    "uq_employees_ad_identity",
+    func.coalesce(func.lower(func.trim(Employee.ad_domain)), ""),
+    func.lower(func.trim(Employee.ad_login)),
+    unique=True,
+    sqlite_where=Employee.ad_login.is_not(None) & (func.trim(Employee.ad_login) != ""),
+)
+Index("uq_employees_ad_guid", func.lower(Employee.ad_guid), unique=True)
+Index(
+    "uq_workplaces_unlocated_name", Workplace.normalized_name,
+    unique=True, sqlite_where=Workplace.branch_id.is_(None),
+)

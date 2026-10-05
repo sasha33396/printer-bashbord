@@ -185,6 +185,8 @@ def _warehouse_card(item: WarehouseItem, db: Session) -> dict:
             "ram_gb": item.ram_gb,
             "processor": item.processor,
             "graphics": item.graphics,
+            "os_name": item.os_name,
+            "os_version": item.os_version,
             "storage_type": item.storage_type,
             "storage_capacity_gb": item.storage_capacity_gb,
             "unit": item.unit,
@@ -426,6 +428,10 @@ def _import_warehouse_item(db: Session, inventory_number: str, data: dict) -> tu
     item.ram_gb = data.get("ram_gb")
     item.processor = data.get("processor")
     item.graphics = data.get("graphics")
+    if "os_name" in data:
+        item.os_name = data["os_name"]
+    if "os_version" in data:
+        item.os_version = data["os_version"]
     item.storage_type = data.get("storage_type")
     item.storage_capacity_gb = data.get("storage_capacity_gb")
     item.unit = data.get("unit") or "шт."

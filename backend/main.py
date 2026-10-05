@@ -8,7 +8,7 @@ from models import WarehouseItem
 from photo_storage import move_photo_directory
 from routers import (
     analytics, auth, consumables, devices, employees, history, manufacturers,
-    inventory, orgs, repairs, warehouse, workplaces,
+    integrations, inventory, orgs, repairs, warehouse, workplaces,
 )
 
 initialize_database()
@@ -85,6 +85,7 @@ app.include_router(employees.router, prefix="/api/employees", tags=["employees"]
 app.include_router(workplaces.router, prefix="/api/workplaces", tags=["workplaces"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["inventory"])
 app.include_router(history.router, prefix="/api/history", tags=["history"])
+app.include_router(integrations.router, prefix="/api/integrations", tags=["integrations"])
 
 
 @app.get("/api/health")

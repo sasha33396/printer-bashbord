@@ -3,12 +3,16 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from network import normalize_ip_address, normalize_mac_address
+from ad_identity import normalize_ad_domain, normalize_ad_guid, normalize_ad_login
 from models import (
     DeviceType, DeviceStatus, RepairType, RepairStatus, ItemType, StockMovementType,
     WorkplaceStatus,
 )
 
 IPAddress = Annotated[Optional[str], BeforeValidator(normalize_ip_address)]
+ADLogin = Annotated[Optional[str], BeforeValidator(normalize_ad_login)]
+ADDomain = Annotated[Optional[str], BeforeValidator(normalize_ad_domain)]
+ADGuid = Annotated[Optional[str], BeforeValidator(normalize_ad_guid)]
 MACAddress = Annotated[Optional[str], BeforeValidator(normalize_mac_address)]
 
 
@@ -275,7 +279,7 @@ class WarehouseItemCreate(BaseModel):
     sku: Optional[str] = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(min_length=1, max_length=100)
-    branch_id: int
+    branch_id: Optional[int] = None
     department_id: Optional[int] = None
     tracking_type: str = Field(default="quantity", pattern="^(quantity|asset)$")
     inventory_number: Optional[str] = Field(default=None, max_length=100)
@@ -292,6 +296,8 @@ class WarehouseItemCreate(BaseModel):
     ram_gb: Optional[int] = Field(default=None, ge=0)
     processor: Optional[str] = Field(default=None, max_length=255)
     graphics: Optional[str] = Field(default=None, max_length=255)
+    os_name: Optional[str] = Field(default=None, max_length=255)
+    os_version: Optional[str] = Field(default=None, max_length=100)
     storage_type: Optional[str] = Field(default=None, max_length=50)
     storage_capacity_gb: Optional[int] = Field(default=None, ge=0)
     unit: str = Field(default="шт.", min_length=1, max_length=30)
@@ -321,6 +327,8 @@ class WarehouseItemUpdate(BaseModel):
     ram_gb: Optional[int] = Field(default=None, ge=0)
     processor: Optional[str] = Field(default=None, max_length=255)
     graphics: Optional[str] = Field(default=None, max_length=255)
+    os_name: Optional[str] = Field(default=None, max_length=255)
+    os_version: Optional[str] = Field(default=None, max_length=100)
     storage_type: Optional[str] = Field(default=None, max_length=50)
     storage_capacity_gb: Optional[int] = Field(default=None, ge=0)
     unit: Optional[str] = Field(default=None, min_length=1, max_length=30)
@@ -367,6 +375,8 @@ class WarehouseItemRead(BaseModel):
     ram_gb: Optional[int] = None
     processor: Optional[str] = None
     graphics: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
     storage_type: Optional[str] = None
     storage_capacity_gb: Optional[int] = None
     unit: str
@@ -403,6 +413,9 @@ class StockMovementRead(BaseModel):
 
 class EmployeeCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
+    ad_login: ADLogin = Field(default=None, max_length=255)
+    ad_domain: ADDomain = Field(default=None, max_length=255)
+    ad_guid: ADGuid = None
     position: Optional[str] = Field(default=None, max_length=255)
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
@@ -414,6 +427,9 @@ class EmployeeCreate(BaseModel):
 
 class EmployeeUpdate(BaseModel):
     full_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    ad_login: ADLogin = Field(default=None, max_length=255)
+    ad_domain: ADDomain = Field(default=None, max_length=255)
+    ad_guid: ADGuid = None
     position: Optional[str] = Field(default=None, max_length=255)
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
@@ -428,6 +444,9 @@ class EmployeeRead(BaseModel):
 
     id: int
     full_name: str
+    ad_login: Optional[str] = None
+    ad_domain: Optional[str] = None
+    ad_guid: Optional[str] = None
     position: Optional[str] = None
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
@@ -445,7 +464,7 @@ class EmployeeRead(BaseModel):
 
 class WorkplaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    branch_id: int
+    branch_id: Optional[int] = None
     department_id: Optional[int] = None
     location: Optional[str] = Field(default=None, max_length=255)
     employee_id: Optional[int] = None

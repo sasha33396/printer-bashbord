@@ -85,18 +85,18 @@ def _validate_location(
     branch_id: Optional[int],
     department_id: Optional[int],
 ) -> None:
-    if branch_id is None or not db.get(Branch, branch_id):
+    if branch_id is not None and not db.get(Branch, branch_id):
         raise HTTPException(status_code=422, detail="Выберите существующий филиал")
     if department_id is not None:
         department = db.get(Department, department_id)
-        if not department or department.branch_id != branch_id:
+        if branch_id is None or not department or department.branch_id != branch_id:
             raise HTTPException(status_code=422, detail="Отдел не относится к выбранному филиалу")
 
 
 def _validate_unique_sku(
     db: Session,
     sku: Optional[str],
-    branch_id: int,
+    branch_id: Optional[int],
     department_id: Optional[int],
     exclude_item_id: Optional[int] = None,
 ) -> None:
@@ -178,6 +178,8 @@ def _item_read(item: WarehouseItem, quantity: int, workplace=None) -> WarehouseI
         ram_gb=item.ram_gb,
         processor=item.processor,
         graphics=item.graphics,
+        os_name=item.os_name,
+        os_version=item.os_version,
         storage_type=item.storage_type,
         storage_capacity_gb=item.storage_capacity_gb,
         unit=item.unit,
@@ -399,7 +401,10 @@ def create_item(
             model=_normalize_optional(payload.model),
             ip_address=payload.ip_address,
             mac_address=payload.mac_address,
-            placement=_required_text(payload.placement, "Местонахождение"),
+            placement=_required_text(
+                payload.placement if payload.branch_id is not None or "placement" in payload.model_fields_set
+                else "Не определено", "Местонахождение",
+            ),
             condition=_required_text(payload.condition, "Состояние"),
             compatible_printers=_normalize_optional(payload.compatible_printers),
             monitor_diagonal=payload.monitor_diagonal,
@@ -407,6 +412,8 @@ def create_item(
             ram_gb=payload.ram_gb,
             processor=_normalize_optional(payload.processor),
             graphics=_normalize_optional(payload.graphics),
+            os_name=_normalize_optional(payload.os_name),
+            os_version=_normalize_optional(payload.os_version),
             storage_type=_normalize_optional(payload.storage_type),
             storage_capacity_gb=payload.storage_capacity_gb,
             unit=_required_text(payload.unit, "Единица"),
@@ -466,7 +473,7 @@ def update_item(
                 raise HTTPException(status_code=422, detail=f"Поле «{field}» не может быть пустым")
     optional_text_fields = (
         "sku", "inventory_number", "serial_number", "manufacturer", "model",
-        "compatible_printers", "color", "processor", "graphics", "storage_type", "notes",
+        "compatible_printers", "color", "processor", "graphics", "os_name", "os_version", "storage_type", "notes",
     )
     for field in optional_text_fields:
         if field in data:

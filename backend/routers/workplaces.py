@@ -75,18 +75,18 @@ def _read(workplace: Workplace) -> WorkplaceRead:
 
 
 def _validate_location(db: Session, branch_id: Optional[int], department_id: Optional[int]) -> None:
-    if branch_id is None or not db.get(Branch, branch_id):
+    if branch_id is not None and not db.get(Branch, branch_id):
         raise HTTPException(status_code=422, detail="Выберите существующий филиал")
     if department_id is not None:
         department = db.get(Department, department_id)
-        if not department or department.branch_id != branch_id:
+        if branch_id is None or not department or department.branch_id != branch_id:
             raise HTTPException(status_code=422, detail="Отдел не относится к выбранному филиалу")
 
 
 def _validate_employee(
     db: Session,
     employee_id: Optional[int],
-    branch_id: int,
+    branch_id: Optional[int],
     department_id: Optional[int],
     exclude_workplace_id: Optional[int] = None,
 ) -> Optional[Employee]:
@@ -95,7 +95,7 @@ def _validate_employee(
     employee = db.get(Employee, employee_id)
     if not employee or not employee.is_active:
         raise HTTPException(status_code=422, detail="Выберите активного сотрудника")
-    if employee.branch_id is not None and employee.branch_id != branch_id:
+    if branch_id is not None and employee.branch_id is not None and employee.branch_id != branch_id:
         raise HTTPException(status_code=422, detail="Сотрудник относится к другому филиалу")
     if department_id is not None and employee.department_id is not None and employee.department_id != department_id:
         raise HTTPException(status_code=422, detail="Сотрудник относится к другому отделу")

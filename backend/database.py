@@ -68,6 +68,8 @@ def initialize_database():
             ("ram_gb", "INTEGER"),
             ("processor", "VARCHAR(255)"),
             ("graphics", "VARCHAR(255)"),
+            ("os_name", "VARCHAR(255)"),
+            ("os_version", "VARCHAR(100)"),
             ("storage_type", "VARCHAR(50)"),
             ("storage_capacity_gb", "INTEGER"),
             ("is_archived", "BOOLEAN NOT NULL DEFAULT 0"),
@@ -114,6 +116,7 @@ def initialize_database():
             column["name"] for column in inspect(connection).get_columns("workplaces")
         }
         for name, sql_type in (
+            ("normalized_name", "VARCHAR(255)"),
             ("photo_item_id", "INTEGER"),
             ("photo_hash", "VARCHAR(64)"),
             ("is_archived", "BOOLEAN NOT NULL DEFAULT 0"),
@@ -128,6 +131,36 @@ def initialize_database():
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_workplaces_is_archived "
             "ON workplaces (is_archived)"
+        ))
+        for workplace in connection.execute(text("SELECT id, name FROM workplaces WHERE normalized_name IS NULL")):
+            connection.execute(
+                text("UPDATE workplaces SET normalized_name = :name WHERE id = :id"),
+                {"name": workplace.name.strip().casefold(), "id": workplace.id},
+            )
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_workplaces_unlocated_name "
+            "ON workplaces (normalized_name) WHERE branch_id IS NULL"
+        ))
+
+        employee_columns = {
+            column["name"] for column in inspect(connection).get_columns("employees")
+        }
+        for name, sql_type in (
+            ("ad_login", "VARCHAR(255)"),
+            ("ad_domain", "VARCHAR(255)"),
+            ("ad_guid", "VARCHAR(36)"),
+            ("ad_sync_values", "TEXT"),
+        ):
+            if name not in employee_columns:
+                connection.execute(text(f"ALTER TABLE employees ADD COLUMN {name} {sql_type}"))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_ad_identity "
+            "ON employees (COALESCE(LOWER(TRIM(ad_domain)), ''), LOWER(TRIM(ad_login))) "
+            "WHERE ad_login IS NOT NULL AND TRIM(ad_login) <> ''"
+        ))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_ad_guid "
+            "ON employees (LOWER(ad_guid)) WHERE ad_guid IS NOT NULL"
         ))
 
         assignment_columns = {
