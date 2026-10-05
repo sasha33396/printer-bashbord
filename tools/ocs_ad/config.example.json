@@ -1,0 +1,21 @@
+{
+  "ocs_url": "http://172.16.10.122/ocsapi/v1",
+  "app_url": "http://172.16.51.73:3000",
+  "ad_server": "Server1.ruskon.local",
+  "ad_domain": "ruskon.local",
+  "ocs_timezone": "+04:00",
+  "source_key": "main",
+  "max_age_days": 30,
+  "batch_size": 200,
+  "http_timeout_seconds": 30,
+  "ad_timeout_seconds": 120,
+  "powershell_executable": "powershell.exe",
+  "import_token_env": "OCS_AD_IMPORT_TOKEN",
+  "output_directory": "output",
+  "excluded_logins": ["administrator", "admin"],
+  "laptop_names": [
+    "Notebook-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
+    "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",
+    "Notebook-sar1", "Ershov-Note"
+  ]
+}
