@@ -12,9 +12,10 @@ import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 
-const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Телефоны', 'Принтеры']
-const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры', 'Телефоны'])
-const NETWORK_CATEGORIES = new Set(['Компьютеры', 'Телефоны'])
+const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Ноутбуки', 'Телефоны', 'Принтеры']
+const COMPUTER_CATEGORIES = new Set(['Компьютеры', 'Ноутбуки'])
+const ASSET_CATEGORIES = new Set(['Мониторы', 'Компьютеры', 'Ноутбуки', 'Телефоны'])
+const NETWORK_CATEGORIES = new Set(['Компьютеры', 'Ноутбуки', 'Телефоны'])
 const PLACEMENTS = ['Склад/серверная', 'Ремонт/заправка', 'Рабочее место']
 const CONDITIONS = ['На складе', 'Рабочий', 'В ремонте', 'Требует ремонта', 'Списан']
 
@@ -209,7 +210,7 @@ function ItemModal({ open, editing, initialCategory, categories, branches, depar
               </Form.Item>
             </Col>
           </>}
-          {selectedCategory === 'Компьютеры' && <>
+          {COMPUTER_CATEGORIES.has(selectedCategory) && <>
             <Col span={8}><Form.Item name="ram_gb" label="ОЗУ, ГБ"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={16}><Form.Item name="processor" label="Процессор"><Input /></Form.Item></Col>
             <Col span={24}><Form.Item name="graphics" label="Видеокарта"><Input /></Form.Item></Col>
@@ -715,7 +716,7 @@ export default function WarehousePage({ archiveOnly = false }) {
 
   const selectedColumns = category === 'Картриджи' ? cartridgeColumns
     : category === 'Мониторы' ? monitorColumns
-      : category === 'Компьютеры' ? computerColumns
+      : COMPUTER_CATEGORIES.has(category) ? computerColumns
         : category === 'Телефоны' ? phoneColumns
           : genericColumns
 

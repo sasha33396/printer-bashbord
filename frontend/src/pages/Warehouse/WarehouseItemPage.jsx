@@ -12,7 +12,7 @@ import { printBarcodeLabel } from '../../utils/barcode'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
 
 const CATEGORY_LABELS = {
-  'Компьютеры': 'Компьютер', 'Мониторы': 'Монитор', 'Картриджи': 'Картридж',
+  'Компьютеры': 'Компьютер', 'Ноутбуки': 'Ноутбук', 'Мониторы': 'Монитор', 'Картриджи': 'Картридж',
   'Мыши': 'Мышь', 'Клавиатуры': 'Клавиатура', 'Телефоны': 'Телефон',
 }
 
@@ -163,7 +163,7 @@ export default function WarehouseItemPage() {
   const storage = [item.storage_type, item.storage_capacity_gb != null ? `${item.storage_capacity_gb} ГБ` : null]
     .filter(Boolean).join(' · ')
   const characteristics = []
-  if (item.category === 'Компьютеры') {
+  if (['Компьютеры', 'Ноутбуки'].includes(item.category)) {
     characteristics.push(
       { label: 'Процессор', value: item.processor },
       { label: 'ОЗУ', value: item.ram_gb != null ? `${item.ram_gb} ГБ` : null },
@@ -241,7 +241,7 @@ export default function WarehouseItemPage() {
         <DetailField label="Ответственный" value={item.responsible_person} />
         <DetailField label="Производитель" value={item.manufacturer} />
         <DetailField label="Модель" value={item.model} />
-        {['Компьютеры', 'Телефоны'].includes(item.category) && <>
+        {['Компьютеры', 'Ноутбуки', 'Телефоны'].includes(item.category) && <>
           <DetailField label="IP-адрес" value={item.ip_address} />
           <DetailField label="MAC-адрес" value={item.mac_address} />
         </>}

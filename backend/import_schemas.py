@@ -25,6 +25,7 @@ class ImportAssetData(BaseModel):
 
 
 class ImportComputerData(ImportAssetData):
+    form_factor: Optional[Literal["desktop", "laptop"]] = None
     os_name: Optional[str] = Field(default=None, max_length=255)
     os_version: Optional[str] = Field(default=None, max_length=100)
     ip_address: IPAddress = None
@@ -98,6 +99,7 @@ class OcsImportRecordResult(BaseModel):
     employee_id: Optional[int] = None
     workplace_id: Optional[int] = None
     computer_item_id: Optional[int] = None
+    computer_category: Optional[Literal["Компьютеры", "Ноутбуки"]] = None
     monitor_item_ids: list[int] = Field(default_factory=list)
     actions: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

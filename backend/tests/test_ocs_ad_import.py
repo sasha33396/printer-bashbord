@@ -1,4 +1,5 @@
 import copy
+import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -125,6 +126,106 @@ class OcsAdImportTests(unittest.TestCase):
                 self.assertEqual(after[name], before[name], name)
         self.assertEqual(report["records"][0]["status"], "unchanged")
         self.assertEqual(report["assets_assigned"], 0)
+
+    def test_confirmed_laptop_names_preview_apply_and_repeat_without_duplicates(self):
+        names = (
+            "Notebook-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
+            "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",
+            "Notebook-sar1", "Ershov-Note",
+        )
+        with patch.dict("os.environ", {"OCS_AD_LAPTOP_NAMES": ",".join(names)}):
+            for index, name in enumerate(names):
+                with self.subTest(name=name):
+                    record = copy.deepcopy(self.record)
+                    record["computer_name"] = f" {name.lower()} "
+                    before = self.counts()
+                    preview = self.submit([record], dry_run=True)
+                    self.assertEqual(self.counts(), before)
+                    self.assertEqual(preview["records"][0]["computer_category"], "Ноутбуки")
+                    applied = self.submit([record])
+                    self.assertEqual(applied["records"], preview["records"])
+                    self.assertEqual(applied["computers_created"], int(index == 0))
+                    with self.sessions() as db:
+                        laptop = db.query(WarehouseItem).filter_by(category="Ноутбуки").one()
+                        self.assertEqual(laptop.tracking_type, "asset")
+                        self.assertIsNone(laptop.branch_id)
+                        self.assertEqual(laptop.os_name, "Windows 11 Pro")
+                        self.assertEqual(db.query(WarehouseItem).filter_by(category="Компьютеры").count(), 0)
+                        self.assertEqual(db.query(WorkplaceAssetAssignment).count(), 2)
+            repeated = self.submit([record])
+            self.assertEqual(repeated["records"][0]["status"], "unchanged")
+
+    def test_default_known_laptop_names_work_without_env_configuration(self):
+        with patch.dict("os.environ"):
+            os.environ.pop("OCS_AD_LAPTOP_NAMES", None)
+            record = copy.deepcopy(self.record)
+            record["computer_name"] = "Ershov-Note"
+            self.assertEqual(self.submit([record])["records"][0]["computer_category"], "Ноутбуки")
+
+    def test_explicit_laptop_type_survives_rename_without_type_hint(self):
+        record = copy.deepcopy(self.record)
+        record["computer"]["form_factor"] = "laptop"
+        self.assertEqual(self.submit([record])["records"][0]["computer_category"], "Ноутбуки")
+        record["computer"].pop("form_factor")
+        record["computer_name"] = "WS-RENAMED-MOBILE"
+        report = self.submit([record])
+        self.assertEqual(report["conflicts"], 0)
+        self.assertEqual(report["records"][0]["computer_category"], "Ноутбуки")
+        self.assertEqual(report["computers_created"], 0)
+        self.assertEqual(self.counts()["WarehouseItem"], 2)
+
+    def test_explicit_desktop_type_overrides_known_laptop_name(self):
+        record = copy.deepcopy(self.record)
+        record["computer_name"] = "Notebook-RTI"
+        record["computer"]["form_factor"] = "desktop"
+        self.assertEqual(self.submit([record])["records"][0]["computer_category"], "Компьютеры")
+        record["computer"]["form_factor"] = "tablet"
+        response = self.client.post("/api/integrations/ocs-ad/import", json={"records": [record]})
+        self.assertEqual(response.status_code, 422)
+
+    def test_laptop_name_configuration_replaces_confirmed_list(self):
+        laptop = copy.deepcopy(self.record)
+        laptop["computer_name"] = "MOBILE-SERVICE"
+        desktop = self.second_record()
+        desktop["computer_name"] = "Notebook-RTI"
+        with patch.dict("os.environ", {"OCS_AD_LAPTOP_NAMES": " mobile-service,other "}):
+            report = self.submit([laptop, desktop])
+        self.assertEqual([row["computer_category"] for row in report["records"]], ["Ноутбуки", "Компьютеры"])
+
+    def test_existing_laptop_matches_serial_even_after_ocs_id_and_name_change(self):
+        created = self.client.post("/api/warehouse/items", json={
+            "name": "Служебный ноутбук", "category": "Ноутбуки", "tracking_type": "asset",
+            "serial_number": "PC-001",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        first = self.submit()
+        self.assertEqual(first["records"][0]["computer_item_id"], created.json()["id"])
+        record = copy.deepcopy(self.record)
+        record.update(ocs_id=999, computer_name="WS-RENAMED-MOBILE")
+        report = self.submit([record])
+        self.assertEqual(report["conflicts"], 0)
+        self.assertEqual(report["records"][0]["computer_category"], "Ноутбуки")
+        self.assertEqual(report["records"][0]["computer_item_id"], created.json()["id"])
+        self.assertEqual(self.counts()["WarehouseItem"], 2)
+        self.assertEqual(self.counts()["Workplace"], 1)
+
+    def test_laptop_type_mismatch_conflicts_without_duplicate_or_category_change(self):
+        self.submit()
+        before = self.counts()
+        for ocs_id in (94, 999):
+            with self.subTest(ocs_id=ocs_id):
+                record = copy.deepcopy(self.record)
+                record["ocs_id"] = ocs_id
+                record["computer"]["form_factor"] = "laptop"
+                report = self.submit([record])
+                self.assertEqual(report["conflicts"], 1)
+                self.assertIn("категор", report["records"][0]["message"])
+                self.assertIsNone(report["records"][0]["computer_category"])
+                for name, count in before.items():
+                    if name != "OcsImportRun":
+                        self.assertEqual(self.counts()[name], count)
+                with self.sessions() as db:
+                    self.assertEqual(db.query(WarehouseItem).filter_by(category="Компьютеры").count(), 1)
 
     def test_monitor_without_serial_is_reported_and_not_duplicated(self):
         record = copy.deepcopy(self.record)

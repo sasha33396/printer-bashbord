@@ -26,6 +26,25 @@ from routers.employees import _validate_location, validate_ad_identity
 from routers.workplaces import _new_assignment
 
 
+COMPUTER_CATEGORIES = ("Компьютеры", "Ноутбуки")
+DEFAULT_LAPTOP_NAMES = (
+    "NOTEBOOK-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
+    "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",
+    "NOTEBOOK-SAR1", "ERSHOV-NOTE",
+)
+
+
+def _computer_category(data, name):
+    if data.form_factor:
+        return "Ноутбуки" if data.form_factor == "laptop" else "Компьютеры"
+    known_names = {
+        value.strip().upper() for value in os.getenv(
+            "OCS_AD_LAPTOP_NAMES", ",".join(DEFAULT_LAPTOP_NAMES),
+        ).split(",") if value.strip()
+    }
+    return "Ноутбуки" if name in known_names else None
+
+
 class ImportConflict(ValueError):
     pass
 
@@ -136,7 +155,9 @@ def _employee(db, record, result):
 
 
 def _asset(db, request, record, data, kind, external_id, name, result, actor, today):
-    category = "Компьютеры" if kind == "computer" else "Мониторы"
+    expected_category = _computer_category(data, name) if kind == "computer" else "Мониторы"
+    category = expected_category or "Компьютеры"
+    categories = COMPUTER_CATEGORIES if kind == "computer" else ("Мониторы",)
     link = db.query(OcsAssetLink).filter_by(
         source_key=request.source_key, asset_kind=kind, external_id=external_id,
     ).first()
@@ -151,27 +172,34 @@ def _asset(db, request, record, data, kind, external_id, name, result, actor, to
         raise ImportConflict(f"{category}: серийный номер связанной карточки отличается от OCS")
     if item is None and serial:
         matches = db.query(WarehouseItem).filter(
-            WarehouseItem.category == category,
+            WarehouseItem.category.in_(categories),
             WarehouseItem.tracking_type == "asset",
             func.lower(func.trim(WarehouseItem.serial_number)) == serial.lower(),
         ).all()
         if len(matches) > 1:
             raise ImportConflict(f"{category}: серийный номер соответствует нескольким карточкам")
         item = matches[0] if matches else None
-    if item and (item.is_archived or item.tracking_type != "asset" or item.category != category):
+    if item and (item.is_archived or item.tracking_type != "asset" or item.category not in categories):
         raise ImportConflict(f"{category}: карточка архивная или имеет другой тип оборудования")
+    if item and expected_category and item.category != expected_category:
+        raise ImportConflict(
+            f"OCS: ожидается категория «{expected_category}», но карточка ID {item.id} "
+            f"находится в «{item.category}»; проверьте тип оборудования и категорию карточки"
+        )
+    if item:
+        category = item.category
     if item is None and kind == "monitor" and serial is None:
         result.warnings.append(f"Монитор {name} (OCS ID {external_id}) пропущен: нет достоверного серийного номера; можно указать item_id")
         return None, None
     if item is None and kind == "computer":
         candidates = db.query(WarehouseItem).filter(
-            WarehouseItem.category == category,
+            WarehouseItem.category.in_(categories),
             func.upper(func.trim(WarehouseItem.name)) == name,
         ).all()
         if candidates:
             raise ImportConflict("Найден компьютер с таким именем без подтверждённой связи; укажите computer.item_id")
 
-    fields = data.model_dump(exclude={"item_id", "ocs_id", "name"})
+    fields = data.model_dump(exclude={"item_id", "ocs_id", "name", "form_factor"})
     fields.update(name=name, serial_number=serial)
     created = item is None
     if created:
@@ -331,6 +359,7 @@ def import_ocs_ad(db, request, actor):
                         employee = _employee(db, record, result)
                         computer, link = _asset(db, request, record, record.computer, "computer", record.ocs_id, record.computer_name, result, actor, today)
                         result.computer_item_id = computer.id
+                        result.computer_category = computer.category
                         workplace = _workplace(db, record, employee, computer, link, result)
                         _assign(db, workplace, computer, result, actor, today)
                         for monitor in record.monitors:
