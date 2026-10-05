@@ -26,6 +26,7 @@ class ImportAssetData(BaseModel):
 
 class ImportComputerData(ImportAssetData):
     form_factor: Optional[Literal["desktop", "laptop"]] = None
+    match_existing_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     os_name: Optional[str] = Field(default=None, max_length=255)
     os_version: Optional[str] = Field(default=None, max_length=100)
     ip_address: IPAddress = None

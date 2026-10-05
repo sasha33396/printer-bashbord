@@ -122,6 +122,64 @@ class NormalizationTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_servers_and_virtual_machines_are_skipped_before_ad_and_duplicates(self):
+        server = card("95", "DC3")
+        server["95"]["hardware"][0]["OSNAME"] = "Microsoft Windows Server 2019 Standard"
+        vm = card("96", "VM-TIMUR")
+        vm["96"]["bios"][0]["SMODEL"] = "Virtual Machine"
+        rack = card("97", "LINUX-SERVER")
+        rack["97"]["bios"][0]["TYPE"] = "Rack Mount Chassis"
+        client = MagicMock()
+        client.request.side_effect = [server, vm, rack, card()]
+        lookup = MagicMock(side_effect=ad_users)
+        records, report = c.prepare_records(client, ["95", "96", "97", "94"], config(), lookup)
+        self.assertEqual([row["ocs_id"] for row in records], ["94"])
+        self.assertEqual([row["status"] for row in report], ["skipped", "skipped", "skipped", "prepared"])
+        self.assertEqual(len(lookup.call_args.args[0]), 1)
+        self.assertIn("Server", report[0]["message"])
+        self.assertIn("Virtual machine", report[1]["message"])
+
+    def test_laptop_and_primary_pc_are_allowed_and_kept_in_same_batch(self):
+        client = MagicMock()
+        laptop = card("95", "NOTE-BUH-2", serial="LAP-001")
+        laptop["95"]["monitors"] = []
+        client.request.side_effect = [laptop, card()]
+        records, report = c.prepare_records(client, ["95", "94"], config(), ad_users)
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(row["status"] == "prepared" for row in report))
+        batches = c.build_batches(records, 2)
+        self.assertEqual([[r["ocs_id"] for r in batch] for batch in batches], [["94", "95"]])
+        with self.assertRaises(c.CollectorError):
+            c.build_batches(records, 1)
+
+    def test_shared_monitor_still_blocks_pc_and_laptop(self):
+        client = MagicMock()
+        client.request.side_effect = [card(), card("95", "NOTE-BUH-2", serial="LAP-001")]
+        records, report = c.prepare_records(client, ["94", "95"], config(), ad_users)
+        self.assertEqual(records, [])
+        self.assertEqual(report[0]["duplicate_keys"], [["monitor", "72"]])
+
+    def test_blocked_primary_does_not_leave_laptop_to_create_another_workplace(self):
+        laptop = card("95", "NOTE-BUH-2", serial="LAP-001")
+        laptop["95"]["monitors"] = []
+        other = card("96", "OTHER-PC", login="a.other", serial="PC-002")
+        client = MagicMock()
+        client.request.side_effect = [card(), laptop, other]
+        records, report = c.prepare_records(client, ["94", "95", "96"], config(), ad_users)
+        self.assertEqual(records, [])
+        self.assertTrue(all(row["status"] == "conflict" for row in report))
+        self.assertEqual(report[1]["duplicate_keys"][0][0], "employee_group")
+
+    def test_confirmed_op_krd_match_is_explicit_and_checks_source_name(self):
+        computer = c.normalize_card("555", card("555", "OP-KRD-1"), config()).record["computer"]
+        self.assertEqual(computer["match_existing_name"], "OP-KRD-1")
+        with self.assertRaises(c.CollectorError):
+            c.normalize_card("555", card("555", "UNEXPECTED-PC"), config())
+        explicit = config(computer_matches={"555": {"name": "OP-KRD-1", "item_id": 123}})
+        computer = c.normalize_card("555", card("555", "OP-KRD-1"), explicit).record["computer"]
+        self.assertEqual(computer["item_id"], 123)
+        self.assertNotIn("match_existing_name", computer)
+
     def test_stale_empty_and_unreachable_cards_are_reported_before_ad(self):
         old = card("95")
         old["95"]["hardware"][0]["LASTDATE"] = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
@@ -219,7 +277,9 @@ class CliTests(unittest.TestCase):
 class ConfigTests(unittest.TestCase):
     def test_urls_offsets_and_limits_are_validated(self):
         self.assertEqual(config().import_url, "http://app:3000/api/integrations/ocs-ad/import")
-        for changes in ({"batch_size": 501}, {"max_age_days": 0}, {"ocs_timezone": "local"}, {"laptop_names": "x"}):
+        for changes in ({"batch_size": 501}, {"max_age_days": 0}, {"ocs_timezone": "local"}, {"laptop_names": "x"},
+                        {"computer_matches": []}, {"computer_matches": {"555": {"name": ""}}},
+                        {"computer_matches": {"555": {"name": "OP-KRD-1", "item_id": True}}}):
             with self.subTest(changes=changes), self.assertRaises(c.CollectorError):
                 config(**changes)
         for url in ("http://user:password@host", "file:///etc/passwd", "http://host?secret=x"):
@@ -304,9 +364,11 @@ class ApiContractTests(unittest.TestCase):
         except ImportError:
             self.skipTest("Run in the backend container for the real API contract check")
         client = MagicMock()
-        client.request.return_value = card(name="Ershov-Note")
-        records, _ = c.prepare_records(client, ["94"], config(), ad_users)
-        request = {"records": records, "dry_run": True}
+        laptop = card("95", "Ershov-Note", serial="LAP-001")
+        laptop["95"]["monitors"] = []
+        client.request.side_effect = [laptop, card()]
+        records, _ = c.prepare_records(client, ["95", "94"], config(), ad_users)
+        request = {"records": c.build_batches(records, 200)[0], "dry_run": True}
         OcsAdImportRequest.model_validate(request)
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         self.addCleanup(engine.dispose)
@@ -322,7 +384,10 @@ class ApiContractTests(unittest.TestCase):
         with TestClient(app) as api:
             preview = api.post("/api/integrations/ocs-ad/import", json=request)
             self.assertEqual(preview.status_code, 200, preview.text)
-            self.assertEqual(preview.json()["records"][0]["computer_category"], "Ноутбуки")
+            self.assertEqual([r["computer_category"] for r in preview.json()["records"]], ["Компьютеры", "Ноутбуки"])
+            self.assertEqual(preview.json()["employees_created"], 1)
+            self.assertEqual(preview.json()["workplaces_created"], 1)
+            self.assertEqual(preview.json()["conflicts"], 0)
             with sessions() as db:
                 self.assertEqual(db.query(WarehouseItem).count(), 0)
             request["dry_run"] = False
@@ -331,10 +396,10 @@ class ApiContractTests(unittest.TestCase):
             self.assertEqual(applied.status_code, 200, applied.text)
             self.assertEqual(repeated.json()["computers_created"], 0)
             with sessions() as db:
-                self.assertEqual(db.query(WarehouseItem).one().category, "Ноутбуки")
+                self.assertEqual({item.category for item in db.query(WarehouseItem)}, {"Компьютеры", "Ноутбуки"})
                 self.assertEqual(db.query(Employee).count(), 1)
                 self.assertEqual(db.query(Workplace).count(), 1)
-                self.assertEqual(db.query(WorkplaceAssetAssignment).count(), 1)
+                self.assertEqual(db.query(WorkplaceAssetAssignment).count(), 2)
 
 
 if __name__ == "__main__":

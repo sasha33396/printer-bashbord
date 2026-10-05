@@ -13,6 +13,7 @@
   "import_token_env": "OCS_AD_IMPORT_TOKEN",
   "output_directory": "output",
   "excluded_logins": ["administrator", "admin"],
+  "computer_matches": {"555": {"name": "OP-KRD-1"}},
   "laptop_names": [
     "Notebook-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
     "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",

@@ -168,6 +168,20 @@ def _asset(db, request, record, data, kind, external_id, name, result, actor, to
         if not explicit or (item and item.id != explicit.id):
             raise ImportConflict(f"{category}: указанная карточка не соответствует связи OCS")
         item = explicit
+    if kind == "computer" and data.match_existing_name:
+        if data.match_existing_name.casefold() != name.casefold():
+            raise ImportConflict("Имя для сопоставления отличается от имени компьютера OCS")
+        # This is an explicit operator decision, never an automatic name match.
+        # A saved source link remains authoritative after manual card renaming.
+        if link is None:
+            matches = [candidate for candidate in db.query(WarehouseItem).filter(
+                WarehouseItem.category.in_(categories),
+            ).all() if candidate.name.strip().casefold() == data.match_existing_name.casefold()]
+            if len(matches) != 1:
+                raise ImportConflict("Явное сопоставление по имени требует ровно одну существующую карточку")
+            if item and item.id != matches[0].id:
+                raise ImportConflict("item_id и имя для сопоставления относятся к разным карточкам")
+            item = matches[0]
     if item and serial and _serial(item.serial_number) and item.serial_number.lower() != serial.lower():
         raise ImportConflict(f"{category}: серийный номер связанной карточки отличается от OCS")
     if item is None and serial:
@@ -199,7 +213,7 @@ def _asset(db, request, record, data, kind, external_id, name, result, actor, to
         if candidates:
             raise ImportConflict("Найден компьютер с таким именем без подтверждённой связи; укажите computer.item_id")
 
-    fields = data.model_dump(exclude={"item_id", "ocs_id", "name", "form_factor"})
+    fields = data.model_dump(exclude={"item_id", "ocs_id", "name", "form_factor", "match_existing_name"})
     fields.update(name=name, serial_number=serial)
     created = item is None
     if created:
@@ -235,13 +249,29 @@ def _asset(db, request, record, data, kind, external_id, name, result, actor, to
     return item, link
 
 
-def _workplace(db, record, employee, computer, link, result):
+def _workplace(db, record, employee, computer, link, result, require_existing=False):
     assignment = db.query(WorkplaceAssetAssignment).filter_by(item_id=computer.id, ended_at=None).first()
     workplace = db.get(Workplace, link.workplace_id) if link.workplace_id else None
     if assignment:
         if workplace and workplace.id != assignment.workplace_id:
             raise ImportConflict("Компьютер перемещён на другое рабочее место")
         workplace = db.get(Workplace, assignment.workplace_id)
+    if workplace is None:
+        owned = db.query(Workplace).filter_by(employee_id=employee.id).all()
+        if len(owned) > 1:
+            raise ImportConflict("У сотрудника несколько рабочих мест; требуется выбрать основное вручную")
+        if owned:
+            main = owned[0]
+            other_desktop = db.query(WorkplaceAssetAssignment.id).join(
+                WarehouseItem, WarehouseItem.id == WorkplaceAssetAssignment.item_id,
+            ).filter(
+                WorkplaceAssetAssignment.workplace_id == main.id,
+                WorkplaceAssetAssignment.ended_at.is_(None),
+                WarehouseItem.category == COMPUTER_CATEGORIES[0],
+                WarehouseItem.id != computer.id,
+            ).first()
+            if computer.category == COMPUTER_CATEGORIES[1] or not other_desktop:
+                workplace = main
     if workplace is None:
         candidates = db.query(Workplace).filter(Workplace.normalized_name == record.computer_name.casefold()).all()
         if len(candidates) > 1:
@@ -257,6 +287,8 @@ def _workplace(db, record, employee, computer, link, result):
     if other.first():
         raise ImportConflict("Сотрудник уже закреплён за другим рабочим местом")
     if workplace is None:
+        if require_existing:
+            raise ImportConflict("Для дополнительного ноутбука не найдено основное рабочее место; проверьте импорт основного ПК")
         workplace = Workplace(
             name=record.computer_name, employee_id=employee.id,
             branch_id=record.branch_id, department_id=record.department_id,
@@ -313,22 +345,42 @@ def _batch_duplicates(records):
     keys = []
     for record in records:
         values = [("computer", record.ocs_id), ("name", record.computer_name)]
-        if record.ad_login:
-            values.append(("employee", record.domain, record.ad_login))
-        if record.ad_guid:
-            values.append(("guid", record.ad_guid))
+        if _serial(record.computer.serial_number):
+            values.append(("computer_serial", _serial(record.computer.serial_number).lower()))
         for monitor in record.monitors:
             values.append(("monitor", monitor.ocs_id))
             if _serial(monitor.serial_number):
                 values.append(("monitor_serial", _serial(monitor.serial_number).lower()))
         keys.append(values)
     counts = Counter(key for values in keys for key in values)
-    return {index for index, values in enumerate(keys) if any(counts[key] > 1 for key in values)}
+    blocked = {index for index, values in enumerate(keys) if any(counts[key] > 1 for key in values)}
+    groups = {}
+    guids = {}
+    for index, record in enumerate(records):
+        identity = (record.domain, record.ad_login)
+        if record.ad_login:
+            groups.setdefault(identity, []).append(index)
+        if record.ad_guid:
+            guids.setdefault(record.ad_guid, []).append(index)
+    for indexes in groups.values():
+        desktops = [i for i in indexes if not _is_laptop(records[i])]
+        ids = {records[i].ad_guid for i in indexes if records[i].ad_guid}
+        if len(desktops) > 1 or len(ids) > 1:
+            blocked.update(indexes)
+    for indexes in guids.values():
+        if len({(records[i].domain, records[i].ad_login) for i in indexes}) > 1:
+            blocked.update(indexes)
+    return blocked
+
+
+def _is_laptop(record):
+    return _computer_category(record.computer, record.computer_name) == COMPUTER_CATEGORIES[1]
 
 
 def import_ocs_ad(db, request, actor):
     response = OcsAdImportResponse(dry_run=request.dry_run, processed=len(request.records))
     duplicates = _batch_duplicates(request.records)
+    identity_counts = Counter((record.domain, record.ad_login) for record in request.records)
     now = datetime.now(timezone.utc)
     today = now.date()
     excluded = {value.strip().lower() for value in os.getenv("OCS_AD_EXCLUDED_LOGINS", "administrator,admin").split(",")}
@@ -339,11 +391,12 @@ def import_ocs_ad(db, request, actor):
         try:
             if db.get_bind().dialect.name == "sqlite":
                 db.connection().exec_driver_sql("BEGIN")
-            for index, record in enumerate(request.records):
+            # Import primary PCs before their laptops, including in previews.
+            for index, record in sorted(enumerate(request.records), key=lambda row: _is_laptop(row[1])):
                 result = OcsImportRecordResult(index=index, ocs_id=record.ocs_id, computer_name=record.computer_name, status="unchanged")
                 try:
                     if index in duplicates:
-                        raise ImportConflict("В пакете повторяется компьютер, сотрудник или монитор; разделите неоднозначные записи")
+                        raise ImportConflict("Повторные идентификаторы оборудования или неоднозначные основные ПК/данные AD; требуется ручная проверка")
                     if not record.ad_login or not record.domain or not record.full_name or record.ad_enabled is None:
                         raise ImportSkip("Нет подтверждённых данных пользователя AD: нужны логин, домен, имя и ad_enabled")
                     if record.ad_login in excluded:
@@ -360,7 +413,10 @@ def import_ocs_ad(db, request, actor):
                         computer, link = _asset(db, request, record, record.computer, "computer", record.ocs_id, record.computer_name, result, actor, today)
                         result.computer_item_id = computer.id
                         result.computer_category = computer.category
-                        workplace = _workplace(db, record, employee, computer, link, result)
+                        workplace = _workplace(
+                            db, record, employee, computer, link, result,
+                            require_existing=_is_laptop(record) and identity_counts[(record.domain, record.ad_login)] > 1,
+                        )
                         _assign(db, workplace, computer, result, actor, today)
                         for monitor in record.monitors:
                             item, monitor_link = _asset(db, request, record, monitor, "monitor", monitor.ocs_id, monitor.name, result, actor, today)
@@ -392,6 +448,7 @@ def import_ocs_ad(db, request, actor):
                 response.conflicts += result.status == "conflict"
                 response.skipped += result.status == "skipped"
                 response.unchanged += result.status == "unchanged"
+            response.records.sort(key=lambda result: result.index)
             if request.dry_run:
                 transaction.rollback()
             else:

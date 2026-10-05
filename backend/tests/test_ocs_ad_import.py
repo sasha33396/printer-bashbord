@@ -95,6 +95,118 @@ class OcsAdImportTests(unittest.TestCase):
         applied = self.submit()
         self.assertEqual(applied["records"], report["records"])
 
+    def laptop_record(self):
+        laptop = copy.deepcopy(self.record)
+        laptop.update(ocs_id=95, computer_name="NOTE-BUH-2", monitors=[])
+        laptop["computer"].update(serial_number="LAP-001", form_factor="laptop")
+        return laptop
+
+    def test_laptop_first_shares_primary_workplace_preview_apply_and_repeat(self):
+        records = [self.laptop_record(), self.record]
+        preview = self.submit(records, dry_run=True)
+        self.assertEqual(preview["conflicts"], 0)
+        self.assertEqual(preview["employees_created"], 1)
+        self.assertEqual(preview["workplaces_created"], 1)
+        self.assertEqual(preview["computers_created"], 2)
+        self.assertEqual([r["index"] for r in preview["records"]], [0, 1])
+        self.assertEqual(preview["records"][0]["workplace_id"], preview["records"][1]["workplace_id"])
+        self.assertTrue(all(count == 0 for count in self.counts().values()))
+        applied = self.submit(records)
+        self.assertEqual(applied["records"], preview["records"])
+        repeated = self.submit(records)
+        self.assertEqual(repeated["unchanged"], 2)
+        with self.sessions() as db:
+            self.assertEqual(db.query(Workplace).one().name, "WS-TEST-01")
+            self.assertEqual(db.query(WorkplaceAssetAssignment).count(), 3)
+
+    def test_laptop_alone_uses_existing_primary_workplace(self):
+        main = self.submit()["records"][0]["workplace_id"]
+        report = self.submit([self.laptop_record()])
+        self.assertEqual(report["conflicts"], 0)
+        self.assertEqual(report["workplaces_created"], 0)
+        self.assertEqual(report["records"][0]["workplace_id"], main)
+
+    def test_desktop_added_after_laptop_uses_its_workplace(self):
+        main = self.submit([self.laptop_record()])["records"][0]["workplace_id"]
+        report = self.submit()
+        self.assertEqual(report["conflicts"], 0)
+        self.assertEqual(report["records"][0]["workplace_id"], main)
+
+    def test_failed_primary_does_not_create_independent_laptop_workplace(self):
+        main = copy.deepcopy(self.record)
+        main["computer"]["item_id"] = 999
+        report = self.submit([self.laptop_record(), main])
+        self.assertEqual(report["conflicts"], 2)
+        self.assertEqual(report["employees_created"], 0)
+        self.assertEqual(self.counts()["Workplace"], 0)
+        self.assertEqual(self.counts()["WarehouseItem"], 0)
+
+    def test_multiple_laptops_require_existing_primary_workplace(self):
+        first = self.laptop_record()
+        second = copy.deepcopy(first)
+        second.update(ocs_id=96, computer_name="NOTE-SECOND")
+        second["computer"]["serial_number"] = "LAP-002"
+        self.assertEqual(self.submit([first, second])["conflicts"], 2)
+        self.submit()
+        self.assertEqual(self.submit([first, second])["conflicts"], 0)
+        self.assertEqual(self.counts()["Workplace"], 1)
+
+    def test_two_primary_desktops_and_laptop_remain_ambiguous(self):
+        other = copy.deepcopy(self.record)
+        other.update(ocs_id=96, computer_name="WS-OTHER", monitors=[])
+        other["computer"]["serial_number"] = "PC-002"
+        report = self.submit([self.record, other, self.laptop_record()])
+        self.assertEqual(report["conflicts"], 3)
+        self.assertEqual(self.counts()["Workplace"], 0)
+
+    def test_same_guid_with_different_login_is_not_shared(self):
+        laptop = self.laptop_record()
+        laptop["ad_login"] = "different.login"
+        self.assertEqual(self.submit([self.record, laptop])["conflicts"], 2)
+
+    def test_explicit_unique_name_match_links_existing_card_and_repeats(self):
+        with self.sessions() as db:
+            item = WarehouseItem(name="OP-KRD-1", category="Компьютеры", tracking_type="asset", inventory_number="EXISTING-1")
+            db.add(item)
+            db.commit()
+            ident = item.id
+        record = copy.deepcopy(self.record)
+        record.update(ocs_id=555, computer_name="OP-KRD-1", monitors=[])
+        record["computer"].update(serial_number=None, match_existing_name="op-krd-1")
+        preview = self.submit([record], dry_run=True)
+        self.assertEqual(preview["conflicts"], 0)
+        self.assertEqual(preview["computers_created"], 0)
+        self.assertEqual(preview["records"][0]["computer_item_id"], ident)
+        self.assertEqual(self.counts()["OcsAssetLink"], 0)
+        self.assertEqual(self.submit([record])["conflicts"], 0)
+        self.assertEqual(self.submit([record])["unchanged"], 1)
+        self.assertEqual(self.counts()["WarehouseItem"], 1)
+
+    def test_explicit_name_match_requires_single_card_and_same_source_name(self):
+        record = copy.deepcopy(self.record)
+        record["computer"]["match_existing_name"] = record["computer_name"]
+        self.assertEqual(self.submit([record])["conflicts"], 1)
+        with self.sessions() as db:
+            for index in range(2):
+                db.add(WarehouseItem(name="WS-TEST-01", category="Компьютеры", tracking_type="asset", inventory_number=f"EXISTING-{index}"))
+            db.commit()
+        self.assertEqual(self.submit([record])["conflicts"], 1)
+        record["computer"]["match_existing_name"] = "ANOTHER-PC"
+        self.assertEqual(self.submit([record])["conflicts"], 1)
+
+    def test_explicit_name_match_retains_serial_and_owner_checks(self):
+        self.submit()
+        with self.sessions() as db:
+            db.query(OcsAssetLink).delete()
+            db.commit()
+        record = copy.deepcopy(self.record)
+        record["computer"]["match_existing_name"] = record["computer_name"]
+        record["computer"]["serial_number"] = "WRONG-SERIAL"
+        self.assertEqual(self.submit([record])["conflicts"], 1)
+        record["computer"]["serial_number"] = "PC-001"
+        record.update(ad_login="a.other", ad_guid=None, full_name="Другой сотрудник")
+        self.assertEqual(self.submit([record])["conflicts"], 1)
+
     def test_apply_creates_complete_unlocated_link_and_audit(self):
         report = self.submit()
         with self.sessions() as db:

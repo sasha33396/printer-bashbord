@@ -35,6 +35,10 @@ class CollectorError(ValueError):
     pass
 
 
+class CollectorSkip(ValueError):
+    pass
+
+
 def text(value, limit=255):
     if value is None:
         return None
@@ -92,6 +96,7 @@ class Config:
     output_directory: str = "output"
     excluded_logins: list = field(default_factory=lambda: ["administrator", "admin"])
     laptop_names: list = field(default_factory=lambda: list(DEFAULT_LAPTOP_NAMES))
+    computer_matches: dict = field(default_factory=lambda: {"555": {"name": "OP-KRD-1"}})
 
     def __post_init__(self):
         for key in ("ocs_url", "app_url", "ad_server", "ad_domain", "ocs_timezone", "source_key",
@@ -116,6 +121,14 @@ class Config:
             values = getattr(self, key)
             if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
                 raise CollectorError(f"{key} must be an array of strings")
+        if not isinstance(self.computer_matches, dict):
+            raise CollectorError("computer_matches must be an object keyed by OCS computer ID")
+        for ident, match in self.computer_matches.items():
+            if (not re.fullmatch(r"[1-9]\d*", str(ident)) or not isinstance(match, dict)
+                    or set(match) - {"name", "item_id"} or not isinstance(match.get("name"), str)
+                    or not match["name"].strip() or len(match["name"].strip()) > 255
+                    or ("item_id" in match and (type(match["item_id"]) is not int or match["item_id"] < 1))):
+                raise CollectorError("Each computer match requires an OCS ID, expected name and optional positive item_id")
 
     @classmethod
     def load(cls, path):
@@ -301,6 +314,17 @@ def normalize_card(ocs_id, response, config):
     if observed.tzinfo is None:
         observed = observed.replace(tzinfo=fixed_timezone(config.ocs_timezone))
     bios = next(iter(rows(card, "bios")), {})
+    os_name = (text(hardware.get("OSNAME")) or "").casefold()
+    chassis = (text(bios.get("TYPE")) or "").casefold().replace("-", " ")
+    if re.search(r"windows\s+server", os_name) or "server" in chassis or chassis in (
+        "rack mount chassis", "rack mount", "blade", "blade enclosure", "23", "28", "29",
+    ):
+        raise CollectorSkip("Server excluded: " + name.upper())
+    platform = " ".join(text(bios.get(key)) or "" for key in ("SMANUFACTURER", "SMODEL", "MMANUFACTURER", "MMODEL")).casefold()
+    if any(marker in platform for marker in (
+        "virtual machine", "virtualbox", "vmware", "qemu", "kvm", "xen", "parallels", "bochs", "hvm domu",
+    )):
+        raise CollectorSkip("Virtual machine excluded: " + name.upper())
     memory = number(hardware.get("MEMORY"))
     video_names = list(dict.fromkeys(
         value for row in rows(card, "videos") if (value := text(row.get("NAME")))
@@ -316,6 +340,14 @@ def normalize_card(ocs_id, response, config):
     factor = form_factor(bios, name, config.laptop_names)
     if factor:
         computer["form_factor"] = factor
+    match = config.computer_matches.get(str(ocs_id))
+    if match:
+        if match["name"].strip().casefold() != name.casefold():
+            raise CollectorError("Configured computer match name differs from OCS; review computer_matches")
+        if "item_id" in match:
+            computer["item_id"] = match["item_id"]
+        else:
+            computer["match_existing_name"] = name.upper()
     monitors, warnings = [], []
     for row in rows(card, "monitors"):
         ident = text(row.get("ID"), 100)
@@ -389,10 +421,31 @@ def remove_duplicates(records, outcomes):
                 identities[key].add(-1)
             local.add(key)
             identities[key].add(index)
-    ambiguous = {index for indexes in identities.values() if len(indexes) > 1 for index in indexes if index >= 0}
+    # Repeated identity is valid only for one primary PC plus explicit laptops,
+    # with the same confirmed AD GUID. Hardware/monitor collisions still block.
+    ambiguous = set()
+    duplicate_keys = defaultdict(list)
+    for key, indexes in identities.items():
+        if len(indexes) < 2:
+            continue
+        if key[0] in ("login", "guid") and -1 not in indexes:
+            group = [records[index] for index in indexes]
+            same_user = len({(r["domain"], r["ad_login"], r["ad_guid"]) for r in group}) == 1
+            if same_user and sum(r["computer"].get("form_factor") != "laptop" for r in group) <= 1:
+                continue
+        for index in indexes:
+            if index >= 0:
+                ambiguous.add(index)
+                duplicate_keys[index].append(list(key))
+    blocked_users = {(records[index]["domain"], records[index]["ad_login"]) for index in ambiguous}
+    for index, record in enumerate(records):
+        if (record["domain"], record["ad_login"]) in blocked_users and index not in ambiguous:
+            ambiguous.add(index)
+            duplicate_keys[index].append(["employee_group", record["domain"], record["ad_login"]])
     for index in ambiguous:
         outcome = outcomes[records[index]["ocs_id"]]
-        outcome.update(status="conflict", message="Repeated device, AD employee or monitor in the scan; manual review required")
+        outcome.update(status="conflict", message="Ambiguous device or employee group in the scan; manual review required",
+                       duplicate_keys=duplicate_keys[index])
     return [record for index, record in enumerate(records) if index not in ambiguous]
 
 
@@ -421,6 +474,8 @@ def prepare_records(client, ids, config, lookup=None):
             if key not in queries:
                 queries[key] = {"key": str(len(queries)), "raw_login": candidate.raw_login, "domain_hint": candidate.domain_hint}
             candidates.append((candidate, queries[key]["key"]))
+        except CollectorSkip as exc:
+            outcome.update(status="skipped", message=str(exc))
         except CollectorError as exc:
             outcome.update(status="error", message=str(exc))
     users = lookup(list(queries.values()), config)
@@ -475,6 +530,23 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def build_batches(records, batch_size):
+    groups = {}
+    for record in records:
+        groups.setdefault((record["domain"], record["ad_login"]), []).append(record)
+    batches, batch = [], []
+    for group in groups.values():
+        if len(group) > batch_size:
+            raise CollectorError("An employee's devices exceed batch_size; increase batch_size to keep their preview in one transaction")
+        if batch and len(batch) + len(group) > batch_size:
+            batches.append(batch)
+            batch = []
+        batch.extend(sorted(group, key=lambda record: record["computer"].get("form_factor") == "laptop"))
+    if batch:
+        batches.append(batch)
+    return batches
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))
@@ -510,8 +582,8 @@ def main(argv=None):
         records, outcomes = prepare_records(client, ids, config)
         report.update(prepared=len(records), collector_records=outcomes)
         requests = [{"source": "ocs", "source_key": config.source_key, "dry_run": not args.apply,
-                     "max_age_days": config.max_age_days, "records": records[start:start + config.batch_size]}
-                    for start in range(0, len(records), config.batch_size)]
+                     "max_age_days": config.max_age_days, "records": batch}
+                    for batch in build_batches(records, config.batch_size)]
         write_json(directory / "requests.json", requests)
         write_json(directory / "report.json", report)
         if not args.collect_only:
