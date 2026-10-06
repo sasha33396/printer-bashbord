@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message } from 'antd'
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UndoOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UndoOutlined, UploadOutlined } from '@ant-design/icons'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import api from '../../api/api'
 import Table from '../../components/FilterableTable'
 import DigitalDocumentEditor from '../../components/DigitalDocumentEditor'
+import DigitalDocumentImportModal from '../../components/DigitalDocumentImportModal'
 import { DOCUMENTS, TERM_STATUS, displayField, documentError, documentMatches } from '../../utils/digitalDocuments'
 
-function RegisterTab({ kind }) {
+function RegisterTab({ kind, refreshKey }) {
   const config = DOCUMENTS[kind]
   const navigate = useNavigate()
   const [rows, setRows] = useState([])
@@ -35,7 +36,7 @@ function RegisterTab({ kind }) {
     }
   }, [config, archived])
 
-  useEffect(() => { load(); return () => currentRequest.current?.abort() }, [load])
+  useEffect(() => { load(); return () => currentRequest.current?.abort() }, [load, refreshKey])
 
   const edit = async (row) => {
     setBusyId(row.id)
@@ -119,10 +120,16 @@ function RegisterTab({ kind }) {
 export default function DigitalDocumentsPage() {
   const { kind } = useParams()
   const navigate = useNavigate()
+  const [importOpen, setImportOpen] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
   if (!Object.hasOwn(DOCUMENTS, kind)) return <Navigate to="/digital-documents/ecp" replace />
   return <>
-    <Typography.Title level={3} style={{ marginTop: 0 }}>Учет ЭЦП и МЧД</Typography.Title>
+    <div className="page-toolbar" style={{ marginBottom: 16 }}>
+      <Typography.Title level={3} style={{ margin: 0 }}>Учет ЭЦП и МЧД</Typography.Title>
+      <div className="toolbar-actions"><Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>Импорт XLSX</Button></div>
+    </div>
     <Tabs activeKey={kind} destroyInactiveTabPane onChange={(key) => navigate(`/digital-documents/${key}`)}
-      items={Object.entries(DOCUMENTS).map(([key, config]) => ({ key, label: config.label, children: <RegisterTab kind={key} /> }))} />
+      items={Object.entries(DOCUMENTS).map(([key, config]) => ({ key, label: config.label, children: <RegisterTab kind={key} refreshKey={refreshKey} /> }))} />
+    <DigitalDocumentImportModal open={importOpen} onClose={() => setImportOpen(false)} onImported={() => setRefreshKey((value) => value + 1)} />
   </>
 }

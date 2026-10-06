@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from database import get_db
+from digital_document_import import MAX_FILE_BYTES, import_documents
 from digital_document_schemas import (
     PowerOfAttorneyCreate, PowerOfAttorneyRead, PowerOfAttorneyUpdate,
     SignatureCreate, SignatureRead, SignatureUpdate,
@@ -102,6 +103,18 @@ def signature_read(record):
 
 def power_read(record):
     return read_document(record, PowerOfAttorneyCreate, PowerOfAttorneyRead)
+
+
+@router.post("/import-xlsx")
+def import_xlsx(apply: bool = False, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not (file.filename or '').lower().endswith('.xlsx'):
+        raise HTTPException(status_code=422, detail='Выберите файл в формате .xlsx')
+    contents = file.file.read(MAX_FILE_BYTES + 1)
+    try:
+        return import_documents(db, contents, apply=apply)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/signatures", response_model=list[SignatureRead])
