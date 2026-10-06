@@ -472,6 +472,40 @@ body {
   font-size: 13px;
 }
 
+.equipment-photo-paste {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px dashed #b8c4d5;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #475569;
+  font: inherit;
+  cursor: pointer;
+}
+
+.equipment-photo-paste small {
+  flex-basis: 100%;
+  color: #6b7280;
+}
+
+.equipment-photo-paste:hover,
+.equipment-photo-paste:focus-visible {
+  border-color: #1677ff;
+  outline: 2px solid #91caff;
+  outline-offset: 2px;
+}
+
+.equipment-photo-paste[aria-disabled="true"] {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .equipment-photos-loading {
   display: grid;
   min-height: 150px;
