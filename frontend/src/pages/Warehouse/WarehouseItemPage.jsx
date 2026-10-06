@@ -1,15 +1,18 @@
+import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Alert, Button, DatePicker, Form, Input, Modal, Select, Space, Spin, Table, Tag, message,
+  Alert, Button, DatePicker, Form, Input, Modal, Select, Space, Spin, Tag, message,
 } from 'antd'
 import {
-  ArrowLeftOutlined, HistoryOutlined, PrinterOutlined, RetweetOutlined, UndoOutlined,
+  ArrowLeftOutlined, EditOutlined, HistoryOutlined, PrinterOutlined, RetweetOutlined, UndoOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
+import WarehouseItemModal from '../../components/WarehouseItemModal'
+import { equipmentLocation } from '../../utils/equipmentLocation'
 
 const CATEGORY_LABELS = {
   'Компьютеры': 'Компьютер', 'Ноутбуки': 'Ноутбук', 'Мониторы': 'Монитор', 'Картриджи': 'Картридж',
@@ -100,6 +103,10 @@ export default function WarehouseItemPage() {
   const [loading, setLoading] = useState(true)
   const [transferOpen, setTransferOpen] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [branches, setBranches] = useState([])
+  const [departments, setDepartments] = useState([])
+  const [openingEditor, setOpeningEditor] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -125,6 +132,27 @@ export default function WarehouseItemPage() {
   }, [id, navigate])
 
   useEffect(() => { load() }, [load])
+
+  const openEditor = async () => {
+    setOpeningEditor(true)
+    try {
+      const [card, branchResponse, departmentResponse] = await Promise.all([
+        api.get(`/warehouse/items/${id}`), api.get('/orgs/branches'), api.get('/orgs/departments'),
+      ])
+      if (card.data.is_archived) {
+        message.warning('Сначала восстановите оборудование из архива')
+        load()
+        return
+      }
+      setBranches(branchResponse.data)
+      setDepartments(departmentResponse.data)
+      setEditing(card.data)
+    } catch (error) {
+      message.error(apiError(error, 'Не удалось открыть редактирование'))
+    } finally {
+      setOpeningEditor(false)
+    }
+  }
 
   const printLabel = async () => {
     try {
@@ -224,6 +252,7 @@ export default function WarehouseItemPage() {
           </div>
         </div>
         <Space wrap>
+          {!item.is_archived && <Button icon={<EditOutlined />} loading={openingEditor} onClick={openEditor}>Редактировать</Button>}
           {item.tracking_type === 'asset' && !item.is_archived && <Button icon={<RetweetOutlined />} onClick={() => setTransferOpen(true)}>
             {item.workplace ? 'Передать' : 'Установить'}
           </Button>}
@@ -235,7 +264,7 @@ export default function WarehouseItemPage() {
       <div className="inventory-detail-grid">
         <DetailField label="Филиал" value={item.branch?.name} />
         <DetailField label="Отдел" value={item.department?.name} />
-        <DetailField label="Местонахождение" value={item.placement} />
+        <DetailField label="Местонахождение" value={equipmentLocation(item)} />
         <DetailField label="Способ учёта" value={item.tracking_type === 'asset' ? 'Поштучный' : 'По количеству'} />
         <DetailField label="Рабочее место" value={item.workplace && <Button className="inventory-workplace-link" type="link" onClick={() => navigate(`/workplaces/${item.workplace.id}`)}>{item.workplace.name}</Button>} />
         <DetailField label="Ответственный" value={item.responsible_person} />
@@ -272,6 +301,11 @@ export default function WarehouseItemPage() {
       </section>
     </>}
 
+    <WarehouseItemModal
+      open={Boolean(editing)} editing={editing} categories={[item.category]}
+      branches={branches} departments={departments}
+      onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load() }}
+    />
     <TransferModal
       open={transferOpen} item={item} workplaces={workplaces}
       onClose={() => setTransferOpen(false)} onSaved={() => { setTransferOpen(false); load() }}

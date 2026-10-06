@@ -1,6 +1,7 @@
+import Table from '../../components/FilterableTable'
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Tabs, Table, Button, Modal, Form, Input, Select,
+  Tabs, Button, Modal, Form, Input, Select,
   Popconfirm, Space, message, Typography,
 } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'

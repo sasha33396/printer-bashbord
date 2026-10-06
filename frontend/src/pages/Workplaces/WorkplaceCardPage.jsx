@@ -1,7 +1,8 @@
+import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button, DatePicker, Empty, Form, Input, Modal, Popconfirm,
-  Select, Space, Spin, Table, Tag, Typography, message,
+  Select, Space, Spin, Tag, Typography, message,
 } from 'antd'
 import {
   ArrowLeftOutlined, CameraOutlined, DesktopOutlined, EditOutlined, PlusOutlined, PrinterOutlined,

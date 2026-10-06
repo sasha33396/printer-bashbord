@@ -3,6 +3,7 @@ import { Button, DatePicker, Input, Select, Space, Table, Tag, Typography, messa
 import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import api from '../../api/api'
+import { serverChoiceFilter, serverTextFilter } from '../../components/ColumnSearchFilter'
 
 const CATEGORY = {
   equipment: { label: 'Оборудование', color: 'blue' },
@@ -62,6 +63,8 @@ export default function HistoryPage() {
   const [branches, setBranches] = useState([])
   const [employees, setEmployees] = useState([])
   const [period, setPeriod] = useState()
+  const [columnSearch, setColumnSearch] = useState({})
+  const setColumnFilter = (key, value) => { setColumnSearch((previous) => ({ ...previous, [key]: value })); setPage(1) }
   const entityType = initial.get('entity_type') || undefined
   const entityId = initial.get('entity_id') ? Number(initial.get('entity_id')) : undefined
 
@@ -72,6 +75,7 @@ export default function HistoryPage() {
         page, page_size: pageSize, search: search || undefined,
         category, event_type: eventType, entity_type: entityType, entity_id: entityId,
         branch_name: branchName, employee_name: employeeName,
+        ...columnSearch,
         date_from: period?.[0]?.format('YYYY-MM-DD'),
         date_to: period?.[1]?.format('YYYY-MM-DD'),
       } })
@@ -82,7 +86,7 @@ export default function HistoryPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, search, category, eventType, branchName, employeeName, period, entityType, entityId])
+  }, [page, pageSize, search, category, eventType, branchName, employeeName, period, entityType, entityId, columnSearch])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -103,30 +107,39 @@ export default function HistoryPage() {
   const columns = [
     {
       title: 'Дата и время', dataIndex: 'occurred_at', width: 155,
+      filteredValue: period ? ['period'] : null,
+      filterDropdown: ({ confirm }) => <div style={{ padding: 12 }}>
+        <DatePicker.RangePicker value={period} format="DD.MM.YYYY"
+          onChange={(value) => { setPeriod(value); setPage(1); confirm() }} />
+      </div>,
       render: (value) => dayjs(value).format('DD.MM.YYYY HH:mm'),
     },
     {
       title: 'Категория', dataIndex: 'category', width: 135,
+      ...serverChoiceFilter(category, (value) => { setCategory(value); setPage(1) }, Object.entries(CATEGORY).map(([value, item]) => ({ value, label: item.label })), 'Категория'),
       render: (value) => <Tag color={CATEGORY[value]?.color}>{CATEGORY[value]?.label || value}</Tag>,
     },
     {
       title: 'Событие', key: 'event', minWidth: 210,
+      ...serverChoiceFilter(eventType, (value) => { setEventType(value); setPage(1) }, Object.entries(EVENT_TYPES).map(([value, label]) => ({ value, label })), 'Событие'),
       render: (_, event) => <div><strong>{event.title}</strong><div className="history-event-type">{EVENT_TYPES[event.event_type] || event.event_type}</div></div>,
     },
     {
       title: 'Объект', key: 'entity', minWidth: 220,
+      ...serverTextFilter(columnSearch.entity_search, (value) => setColumnFilter('entity_search', value), 'Объект'),
       render: (_, event) => <Button type="link" style={{ padding: 0, height: 'auto', textAlign: 'left' }} onClick={() => openEntity(event)}>
         {[event.inventory_number, event.entity_name].filter(Boolean).join(' · ')}
       </Button>,
     },
     {
       title: 'Перемещение', key: 'direction', minWidth: 220,
+      ...serverTextFilter(columnSearch.movement_search, (value) => setColumnFilter('movement_search', value), 'Перемещение'),
       render: (_, event) => event.from_value || event.to_value
         ? `${event.from_value || '—'} → ${event.to_value || '—'}`
         : event.workplace_name || '—',
     },
-    { title: 'Сотрудник', dataIndex: 'employee_name', minWidth: 170, render: (value) => value || '—' },
-    { title: 'Пользователь', dataIndex: 'actor', width: 130, render: (value) => value || '—' },
+    { title: 'Сотрудник', dataIndex: 'employee_name', minWidth: 170, ...serverTextFilter(columnSearch.employee_search, (value) => setColumnFilter('employee_search', value), 'Сотрудник'), render: (value) => value || '—' },
+    { title: 'Пользователь', dataIndex: 'actor', width: 130, ...serverTextFilter(columnSearch.actor_search, (value) => setColumnFilter('actor_search', value), 'Пользователь'), render: (value) => value || '—' },
   ]
 
   return <>

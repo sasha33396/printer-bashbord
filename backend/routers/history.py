@@ -53,6 +53,10 @@ def list_history(
     entity_id: Optional[int] = None,
     branch_name: Optional[str] = None,
     employee_name: Optional[str] = None,
+    entity_search: Optional[str] = None,
+    movement_search: Optional[str] = None,
+    employee_search: Optional[str] = None,
+    actor_search: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     db: Session = Depends(get_db),
@@ -71,6 +75,16 @@ def list_history(
         query = query.filter(EquipmentEvent.branch_name == branch_name)
     if employee_name:
         query = query.filter(EquipmentEvent.employee_name == employee_name)
+    for text, fields in (
+        (entity_search, (EquipmentEvent.inventory_number, EquipmentEvent.entity_name)),
+        (movement_search, (EquipmentEvent.from_value, EquipmentEvent.to_value, EquipmentEvent.workplace_name)),
+        (employee_search, (EquipmentEvent.employee_name,)),
+        (actor_search, (EquipmentEvent.actor,)),
+    ):
+        if text and text.strip():
+            # Literal substring matching: '%' and '_' in user input are not wildcards.
+            escaped = text.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            query = query.filter(or_(*(field.ilike(f"%{escaped}%", escape='\\') for field in fields)))
     if date_from:
         query = query.filter(EquipmentEvent.occurred_at >= datetime.combine(date_from, time.min))
     if date_to:

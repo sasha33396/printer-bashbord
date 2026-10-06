@@ -204,7 +204,15 @@ def list_items(
         .order_by(WarehouseItem.category, WarehouseItem.name)
         .all()
     )
-    return [_item_read(item, _current_quantity(db, item.id)) for item in items]
+    assignments = (
+        db.query(WorkplaceAssetAssignment)
+        .join(WarehouseItem, WorkplaceAssetAssignment.item_id == WarehouseItem.id)
+        .options(joinedload(WorkplaceAssetAssignment.workplace).joinedload(Workplace.employee))
+        .filter(WarehouseItem.is_archived.is_(archived), WorkplaceAssetAssignment.ended_at.is_(None))
+        .all()
+    )
+    workplaces = {assignment.item_id: assignment.workplace for assignment in assignments}
+    return [_item_read(item, _current_quantity(db, item.id), workplaces.get(item.id)) for item in items]
 
 
 @router.get("/items/{item_id}", response_model=WarehouseItemRead)

@@ -1,7 +1,8 @@
+import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, Upload, message,
+  Modal, Popconfirm, Row, Select, Space, Tag, Typography, Upload, message,
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
@@ -12,6 +13,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import WarehouseItemModal from '../../components/WarehouseItemModal'
+import { deviceLocation, equipmentLocation } from '../../utils/equipmentLocation'
 
 const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Ноутбуки', 'Телефоны', 'Принтеры']
 const COMPUTER_CATEGORIES = new Set(['Компьютеры', 'Ноутбуки'])
@@ -262,7 +264,7 @@ export default function WarehousePage({ archiveOnly = false }) {
       return [
         item.name, item.sku, item.inventory_number, item.serial_number, item.manufacturer,
         item.model, item.ip_address, item.mac_address, item.category,
-        item.branch?.name, item.department?.name, item.placement,
+        item.branch?.name, item.department?.name, equipmentLocation(item),
       ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
     })
   }, [itemsAtLocation, search, category])
@@ -384,12 +386,12 @@ export default function WarehousePage({ archiveOnly = false }) {
   }
 
   const locationColumn = {
-    title: 'Местонахождение', key: 'placement', width: 175,
-    render: (_, row) => row.placement || 'Склад/серверная',
+    title: 'Местонахождение', key: 'placement', width: 250,
+    render: (_, row) => equipmentLocation(row),
   }
   const numberColumn = {
     title: '№', key: 'number', width: 110,
-    render: (_, row) => row.inventory_number || row.sku || row.id,
+    render: (_, row) => row.inventory_number || '—',
   }
   const nameColumn = {
     title: 'Наименование', dataIndex: 'name', ellipsis: true,
@@ -427,8 +429,8 @@ export default function WarehousePage({ archiveOnly = false }) {
 
   const genericColumns = [
     locationColumn, numberColumn,
-    { title: 'Наименование', dataIndex: 'name', ellipsis: true, render: (text, row) => <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/warehouse/items/${row.id}`)}>{text}</Button> },
-    { title: 'Артикул', dataIndex: 'sku', width: 120, render: (value) => value || '—' },
+    { title: 'Категория', dataIndex: 'name', ellipsis: true, render: (text, row) => <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/warehouse/items/${row.id}`)}>{text}</Button> },
+    { title: 'Наименование', dataIndex: 'sku', width: 180, render: (value) => value || '—' },
     {
       title: 'Количество', key: 'quantity', width: 125, align: 'right',
       render: (_, row) => <Tag color={row.current_quantity <= row.min_quantity ? 'red' : 'green'}>{row.current_quantity} {row.unit}</Tag>,
@@ -475,7 +477,7 @@ export default function WarehousePage({ archiveOnly = false }) {
   const printerColumns = [
     {
       title: 'Местонахождение', key: 'location', width: 190,
-      render: (_, row) => [row.department?.name, row.location].filter(Boolean).join(' / ') || '—',
+      render: (_, row) => deviceLocation(row),
     },
     { title: 'Инв. №', dataIndex: 'inventory_number', width: 120 },
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
@@ -578,7 +580,7 @@ export default function WarehousePage({ archiveOnly = false }) {
           <Table
             rowKey="category" loading={loading} pagination={false} size="small" dataSource={summary}
             columns={[
-              { title: '№', width: 70, render: (_, __, index) => index + 1 },
+              { title: '№', width: 70, filterable: false, render: (_, __, index) => index + 1 },
               { title: 'Категория', dataIndex: 'category' },
               { title: 'Количество', dataIndex: 'count', width: 140, align: 'right' },
             ]}
@@ -592,6 +594,7 @@ export default function WarehousePage({ archiveOnly = false }) {
         >
           {(category === 'Принтеры' ? filteredDevices : filteredItems).length === 0 && !loading ? <Empty description="Нет записей" /> : (
             <Table
+              key={category}
               rowKey="id"
               dataSource={category === 'Принтеры' ? filteredDevices : filteredItems}
               columns={category === 'Принтеры' ? printerColumns : selectedColumns}

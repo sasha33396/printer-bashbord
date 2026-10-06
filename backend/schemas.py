@@ -341,6 +341,7 @@ class WarehouseWorkplaceBrief(BaseModel):
 
     id: int
     name: str
+    location: Optional[str] = None
 
 
 class EquipmentPhotoRead(BaseModel):

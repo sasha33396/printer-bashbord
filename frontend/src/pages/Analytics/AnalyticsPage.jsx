@@ -1,6 +1,7 @@
+import Table from '../../components/FilterableTable'
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Row, Col, Card, Statistic, Table, Button, Select,
+  Row, Col, Card, Statistic, Button, Select,
   DatePicker, Typography, Space, Tag, Divider, message,
 } from 'antd'
 import {

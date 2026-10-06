@@ -1,7 +1,8 @@
+import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Col, Form, Input, Modal, Popconfirm, Row, Select,
-  Space, Table, Tag, Typography, message,
+  Space, Tag, Typography, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'

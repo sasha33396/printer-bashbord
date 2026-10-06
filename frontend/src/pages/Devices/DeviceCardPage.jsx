@@ -1,7 +1,8 @@
+import Table from '../../components/FilterableTable'
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Button, Tag, Table, Space, Modal, Form,
+  Button, Tag, Space, Modal, Form,
   Input, InputNumber, Select, DatePicker, Popconfirm, Typography,
   Tabs, Statistic, Row, Col, message, Spin,
 } from 'antd'
@@ -14,6 +15,7 @@ import api from '../../api/api'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
 import RepairEditorModal from '../../components/RepairEditorModal'
 import RepairReportModal from '../../components/RepairReportModal'
+import DeviceModal from '../../components/DeviceModal'
 import { printBarcodeLabel } from '../../utils/barcode'
 import { copyText, deviceWebUrl } from '../../utils/network'
 
@@ -208,6 +210,24 @@ export default function DeviceCardPage() {
   const [editingRepair,     setEditingRepair]     = useState(null)
   const [editingConsumable, setEditingConsumable] = useState(null)
   const [reportRepair, setReportRepair] = useState(null)
+  const [editingDevice, setEditingDevice] = useState(null)
+  const [deviceDictionaries, setDeviceDictionaries] = useState({ branches: [], departments: [], manufacturers: [] })
+  const [openingEditor, setOpeningEditor] = useState(false)
+
+  const openDeviceEditor = async () => {
+    setOpeningEditor(true)
+    try {
+      const [card, branchResponse, departmentResponse, manufacturerResponse] = await Promise.all([
+        api.get(`/devices/${id}`), api.get('/orgs/branches'), api.get('/orgs/departments'), api.get('/manufacturers'),
+      ])
+      setDeviceDictionaries({ branches: branchResponse.data, departments: departmentResponse.data, manufacturers: manufacturerResponse.data })
+      setEditingDevice(card.data)
+    } catch {
+      message.error('Не удалось открыть редактирование устройства')
+    } finally {
+      setOpeningEditor(false)
+    }
+  }
 
   // ---- Loaders ----
 
@@ -587,6 +607,7 @@ export default function DeviceCardPage() {
             </div>
           </div>
           <Space wrap>
+            <Button icon={<EditOutlined />} loading={openingEditor} onClick={openDeviceEditor}>Редактировать</Button>
             <Button icon={<HistoryOutlined />} onClick={() => navigate(`/history?entity_type=device&entity_id=${device.id}`)}>
               История движений
             </Button>
@@ -670,6 +691,11 @@ export default function DeviceCardPage() {
       </section>
 
       {/* Modals */}
+      <DeviceModal
+        open={Boolean(editingDevice)} editing={editingDevice} {...deviceDictionaries}
+        onManufacturerAdded={(manufacturer) => setDeviceDictionaries((previous) => ({ ...previous, manufacturers: [...previous.manufacturers, manufacturer] }))}
+        onClose={() => setEditingDevice(null)} onSaved={() => { setEditingDevice(null); loadDevice() }}
+      />
       <RepairEditorModal
         open={repairModal}
         editing={editingRepair}
