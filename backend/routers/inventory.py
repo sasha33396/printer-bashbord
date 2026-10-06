@@ -246,6 +246,7 @@ def export_inventory_archive(db: Session = Depends(get_db), _: dict = _auth):
             joinedload(Device.repair_records).joinedload(RepairRecord.work_items),
             joinedload(Device.consumable_logs),
         )
+        .filter(Device.inventory_number.isnot(None))
         .order_by(Device.inventory_number)
         .all()
     )

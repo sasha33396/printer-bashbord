@@ -16,7 +16,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 
 from equipment_history import add_item_event, changed_values
-from inventory_numbers import inventory_number_lock, next_inventory_number
+from inventory_numbers import inventory_number_lock
 from models import (
     Employee, OcsAssetLink, OcsImportRun, StockMovement, StockMovementType,
     WarehouseItem, Workplace, WorkplaceAssetAssignment, WorkplaceStatus,
@@ -219,7 +219,7 @@ def _asset(db, request, record, data, kind, external_id, name, result, actor, to
     if created:
         item = WarehouseItem(
             name=name, category=category, tracking_type="asset",
-            inventory_number=next_inventory_number(db),
+            inventory_number=None,
             branch_id=record.branch_id, department_id=record.department_id,
             placement="Не определено", condition="Рабочий", unit="шт.", min_quantity=0,
         )

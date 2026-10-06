@@ -85,7 +85,7 @@ class Device(Base):
     __tablename__ = "devices"
 
     id = Column(Integer, primary_key=True, index=True)
-    inventory_number = Column(String(100), nullable=False, unique=True, index=True)
+    inventory_number = Column(String(100), nullable=True, unique=True, index=True)
     serial_number = Column(String(100), unique=True, nullable=True, index=True)
     ip_address = Column(String(45), nullable=True)
     page_counter = Column(Integer, nullable=True)

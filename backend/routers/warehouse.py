@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from equipment_history import actor_name, add_item_event, changed_values
 from inventory_numbers import (
-    inventory_number_lock, inventory_number_owner, next_inventory_number,
+    inventory_number_lock, inventory_number_owner,
     require_inventory_number,
 )
 from models import (
@@ -22,7 +22,7 @@ from models import (
 from routers.auth import get_current_user
 from photo_storage import (
     IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
-    delete_photo_directory, image_extension, photo_digest,
+    delete_photo_directory, equipment_photo_key, image_extension, photo_digest,
     move_photo_directory, next_photo_filename, normalize_photo_filenames,
     photo_directory, photo_file, photo_files,
 )
@@ -49,10 +49,10 @@ def _get_item_or_404(db: Session, item_id: int) -> WarehouseItem:
 
 def _photo_item_or_404(db: Session, item_id: int) -> WarehouseItem:
     item = _get_item_or_404(db, item_id)
-    if item.tracking_type != "asset" or not item.inventory_number:
+    if item.tracking_type != "asset":
         raise HTTPException(
             status_code=422,
-            detail="Фотографии доступны для оборудования с поштучным учётом и инвентарным номером",
+            detail="Фотографии доступны для оборудования с поштучным учётом",
         )
     return item
 
@@ -122,8 +122,6 @@ def _validate_inventory_number(
     tracking_type: str,
     exclude_item_id: Optional[int] = None,
 ) -> None:
-    if tracking_type == "asset" and not inventory_number:
-        raise HTTPException(status_code=422, detail="Для поштучного учёта нужен инвентарный номер")
     if not inventory_number:
         return
     try:
@@ -246,7 +244,7 @@ def list_item_photos(
     _: dict = _auth,
 ):
     item = _photo_item_or_404(db, item_id)
-    return [_photo_read(path) for path in photo_files(item.inventory_number)]
+    return [_photo_read(path) for path in photo_files(equipment_photo_key("warehouse_item", item.id, item.inventory_number))]
 
 
 @router.get("/items/{item_id}/photos/{filename}")
@@ -258,7 +256,7 @@ def get_item_photo(
 ):
     item = _photo_item_or_404(db, item_id)
     try:
-        path = photo_file(item.inventory_number, filename)
+        path = photo_file(equipment_photo_key("warehouse_item", item.id, item.inventory_number), filename)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
     if not path.is_file() or path.is_symlink():
@@ -282,7 +280,7 @@ async def upload_item_photos(
     _: dict = _auth,
 ):
     item = _photo_item_or_404(db, item_id)
-    existing = photo_files(item.inventory_number)
+    existing = photo_files(equipment_photo_key("warehouse_item", item.id, item.inventory_number))
     if not files:
         raise HTTPException(status_code=422, detail="Выберите фотографии")
     if len(existing) + len(files) > MAX_PHOTOS_PER_ITEM:
@@ -291,9 +289,9 @@ async def upload_item_photos(
             detail=f"Для одного оборудования можно сохранить не более {MAX_PHOTOS_PER_ITEM} фотографий",
         )
 
-    directory = photo_directory(item.inventory_number)
+    directory = photo_directory(equipment_photo_key("warehouse_item", item.id, item.inventory_number))
     directory.mkdir(parents=True, exist_ok=True)
-    normalize_photo_filenames(item.inventory_number)
+    normalize_photo_filenames(equipment_photo_key("warehouse_item", item.id, item.inventory_number))
     saved: List[Path] = []
     temporary: List[Path] = []
     try:
@@ -319,7 +317,7 @@ async def upload_item_photos(
                     status_code=415,
                     detail="Поддерживаются фотографии JPEG, PNG и WebP",
                 )
-            filename = next_photo_filename(item.inventory_number, extension)
+            filename = next_photo_filename(equipment_photo_key("warehouse_item", item.id, item.inventory_number), extension)
             target = directory / filename
             temp_path.replace(target)
             temporary.remove(temp_path)
@@ -334,7 +332,7 @@ async def upload_item_photos(
         for upload in files:
             await upload.close()
 
-    return [_photo_read(path) for path in photo_files(item.inventory_number)]
+    return [_photo_read(path) for path in photo_files(equipment_photo_key("warehouse_item", item.id, item.inventory_number))]
 
 
 @router.delete("/items/{item_id}/photos/{filename}", status_code=status.HTTP_204_NO_CONTENT)
@@ -346,7 +344,7 @@ def delete_item_photo(
 ):
     item = _photo_item_or_404(db, item_id)
     try:
-        path = photo_file(item.inventory_number, filename)
+        path = photo_file(equipment_photo_key("warehouse_item", item.id, item.inventory_number), filename)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
     if not path.is_file() or path.is_symlink():
@@ -357,10 +355,10 @@ def delete_item_photo(
     if not any(directory.iterdir()):
         directory.rmdir()
     else:
-        normalize_photo_filenames(item.inventory_number)
+        normalize_photo_filenames(equipment_photo_key("warehouse_item", item.id, item.inventory_number))
     digest_still_exists = any(
         photo_digest(candidate) == removed_digest
-        for candidate in photo_files(item.inventory_number)
+        for candidate in photo_files(equipment_photo_key("warehouse_item", item.id, item.inventory_number))
     )
     if not digest_still_exists:
         db.query(Workplace).filter(
@@ -385,8 +383,6 @@ def create_item(
     _validate_unique_sku(db, sku, payload.branch_id, payload.department_id)
     with inventory_number_lock:
         inventory_number = requested_inventory_number
-        if payload.tracking_type == "asset" and not inventory_number:
-            inventory_number = next_inventory_number(db)
         _validate_inventory_number(db, inventory_number, payload.tracking_type)
         item = WarehouseItem(
             sku=sku,
@@ -484,17 +480,19 @@ def update_item(
     inventory_number = data.get("inventory_number", item.inventory_number)
     old_inventory_number = item.inventory_number
     new_inventory_number = inventory_number
+    old_photo_key = equipment_photo_key("warehouse_item", item.id, old_inventory_number)
+    new_photo_key = equipment_photo_key("warehouse_item", item.id, new_inventory_number)
     moved_photos = False
     with inventory_number_lock:
         _validate_inventory_number(db, inventory_number, tracking_type, exclude_item_id=item.id)
         if new_inventory_number != old_inventory_number:
-            if photo_directory(new_inventory_number).exists():
+            if photo_directory(new_photo_key).exists():
                 raise HTTPException(
                     status_code=409,
                     detail="Каталог нового инвентарного номера уже существует",
                 )
             try:
-                moved_photos = move_photo_directory(old_inventory_number, new_inventory_number)
+                moved_photos = move_photo_directory(old_photo_key, new_photo_key)
             except FileExistsError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -536,12 +534,12 @@ def update_item(
         except IntegrityError as exc:
             db.rollback()
             if moved_photos:
-                move_photo_directory(new_inventory_number, old_inventory_number)
+                move_photo_directory(new_photo_key, old_photo_key)
             raise HTTPException(status_code=409, detail="Позиция с такими данными уже существует") from exc
         except Exception:
             db.rollback()
             if moved_photos:
-                move_photo_directory(new_inventory_number, old_inventory_number)
+                move_photo_directory(new_photo_key, old_photo_key)
             raise
     db.refresh(item)
     return _item_read(item, _current_quantity(db, item.id))

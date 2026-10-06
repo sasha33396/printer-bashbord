@@ -15,13 +15,13 @@ from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from equipment_history import actor_name, add_device_event, changed_values
 from inventory_numbers import (
-    inventory_number_lock, inventory_number_owner, next_inventory_number,
+    inventory_number_lock, inventory_number_owner,
     require_inventory_number,
 )
 from network import normalize_ip_address
 from photo_storage import (
     IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
-    delete_photo_directory, image_extension, next_photo_filename,
+    delete_photo_directory, equipment_photo_key, image_extension, next_photo_filename,
     move_photo_directory, normalize_photo_filenames,
     photo_directory, photo_file, photo_files,
 )
@@ -159,8 +159,8 @@ def create_device(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     with inventory_number_lock:
-        inventory_number = requested_number or next_inventory_number(db)
-        if inventory_number_owner(db, inventory_number):
+        inventory_number = requested_number
+        if inventory_number and inventory_number_owner(db, inventory_number):
             raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
         data["inventory_number"] = inventory_number
         device = Device(**data)
@@ -249,7 +249,6 @@ def import_devices(
 
     for row_num, row in enumerate(data_rows, start=2):
         inv = _cell(row, 0)
-        auto_inventory_number = not inv
         if inv:
             try:
                 inv = require_inventory_number(inv)
@@ -343,12 +342,7 @@ def import_devices(
             status=device_status,
             notes=_cell(row, 11),
         )
-        if auto_inventory_number:
-            with inventory_number_lock:
-                device = Device(inventory_number=next_inventory_number(db), **device_data)
-                db.add(device)
-                db.flush()
-        else:
+        with inventory_number_lock:
             device = Device(inventory_number=inv, **device_data)
             db.add(device)
             db.flush()
@@ -388,7 +382,7 @@ def list_device_photos(
     _: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
-    return [_photo_read(path) for path in photo_files(device.inventory_number)]
+    return [_photo_read(path) for path in photo_files(equipment_photo_key("device", device.id, device.inventory_number))]
 
 
 @router.get("/{device_id}/photos/{filename}")
@@ -400,7 +394,7 @@ def get_device_photo(
 ):
     device = _get_or_404(db, device_id)
     try:
-        path = photo_file(device.inventory_number, filename)
+        path = photo_file(equipment_photo_key("device", device.id, device.inventory_number), filename)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
     if not path.is_file() or path.is_symlink():
@@ -424,7 +418,7 @@ async def upload_device_photos(
     _: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
-    inventory_number = device.inventory_number
+    inventory_number = equipment_photo_key("device", device.id, device.inventory_number)
     existing = photo_files(inventory_number)
     if not files:
         raise HTTPException(status_code=422, detail="Выберите фотографии")
@@ -488,7 +482,7 @@ def delete_device_photo(
 ):
     device = _get_or_404(db, device_id)
     try:
-        path = photo_file(device.inventory_number, filename)
+        path = photo_file(equipment_photo_key("device", device.id, device.inventory_number), filename)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
     if not path.is_file() or path.is_symlink():
@@ -498,7 +492,7 @@ def delete_device_photo(
     if not any(directory.iterdir()):
         directory.rmdir()
     else:
-        normalize_photo_filenames(device.inventory_number)
+        normalize_photo_filenames(equipment_photo_key("device", device.id, device.inventory_number))
 
 
 @router.put("/{device_id}", response_model=DeviceRead)
@@ -518,27 +512,30 @@ def update_device(
     new_inventory_number = old_inventory_number
     if "inventory_number" in data:
         try:
-            new_inventory_number = require_inventory_number(data["inventory_number"])
+            value = (data["inventory_number"] or "").strip()
+            new_inventory_number = require_inventory_number(value) if value else None
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         data["inventory_number"] = new_inventory_number
 
     moved_photos = False
+    old_photo_key = equipment_photo_key("device", device.id, old_inventory_number)
+    new_photo_key = equipment_photo_key("device", device.id, new_inventory_number)
     with inventory_number_lock:
         if new_inventory_number != old_inventory_number:
-            if inventory_number_owner(
+            if new_inventory_number and inventory_number_owner(
                 db,
                 new_inventory_number,
                 exclude_device_id=device.id,
             ):
                 raise HTTPException(status_code=409, detail="Такой инвентарный номер уже используется")
-            if photo_directory(new_inventory_number).exists():
+            if photo_directory(new_photo_key).exists():
                 raise HTTPException(
                     status_code=409,
                     detail="Каталог нового инвентарного номера уже существует",
                 )
             try:
-                moved_photos = move_photo_directory(old_inventory_number, new_inventory_number)
+                moved_photos = move_photo_directory(old_photo_key, new_photo_key)
             except FileExistsError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -572,12 +569,12 @@ def update_device(
         except IntegrityError as exc:
             db.rollback()
             if moved_photos:
-                move_photo_directory(new_inventory_number, old_inventory_number)
+                move_photo_directory(new_photo_key, old_photo_key)
             raise HTTPException(status_code=409, detail="Указанные данные уже используются") from exc
         except Exception:
             db.rollback()
             if moved_photos:
-                move_photo_directory(new_inventory_number, old_inventory_number)
+                move_photo_directory(new_photo_key, old_photo_key)
             raise
     return _load_with_relations(db).filter(Device.id == device_id).first()
 
@@ -620,7 +617,7 @@ def delete_device(
     current_user: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
-    inventory_number = device.inventory_number
+    inventory_number = equipment_photo_key("device", device.id, device.inventory_number)
     repair_ids = [record.id for record in device.repair_records]
     add_device_event(
         db,

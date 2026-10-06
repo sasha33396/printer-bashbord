@@ -12,7 +12,7 @@ from models import (
     Branch, Department, Employee, WarehouseItem, Workplace,
     WorkplaceAssetAssignment, WorkplaceStatus,
 )
-from photo_storage import IMAGE_TYPES, photo_digest, photo_file, photo_files
+from photo_storage import IMAGE_TYPES, equipment_photo_key, photo_digest, photo_file, photo_files
 from routers.auth import get_current_user
 from schemas import (
     WorkplaceAssignmentCreate, WorkplaceAssignmentEnd, WorkplaceAssignmentRead,
@@ -245,9 +245,9 @@ def _selected_photo(db: Session, workplace: Workplace):
         WorkplaceAssetAssignment.ended_at.is_(None),
     ).first()
     item = db.get(WarehouseItem, workplace.photo_item_id)
-    if not assignment or not item or not item.inventory_number:
+    if not assignment or not item:
         return None
-    for path in photo_files(item.inventory_number):
+    for path in photo_files(equipment_photo_key("warehouse_item", item.id, item.inventory_number)):
         if photo_digest(path) == workplace.photo_hash:
             return path
     return None
@@ -318,10 +318,10 @@ def select_workplace_photo(
     if not assignment:
         raise HTTPException(status_code=422, detail="Оборудование не закреплено за этим рабочим местом")
     item = db.get(WarehouseItem, payload.item_id)
-    if not item or not item.inventory_number:
-        raise HTTPException(status_code=422, detail="У оборудования нет инвентарного номера")
+    if not item:
+        raise HTTPException(status_code=422, detail="Оборудование не найдено")
     try:
-        path = photo_file(item.inventory_number, payload.filename)
+        path = photo_file(equipment_photo_key("warehouse_item", item.id, item.inventory_number), payload.filename)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Фотография не найдена") from exc
     if not path.is_file() or path.is_symlink():

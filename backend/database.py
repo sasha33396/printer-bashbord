@@ -16,6 +16,8 @@ Base = declarative_base()
 
 
 def initialize_database():
+    from schema_migrations import allow_empty_device_inventory
+    allow_empty_device_inventory(engine)
     Base.metadata.create_all(bind=engine)
     # create_all does not add columns to existing installations.
     with engine.begin() as connection:

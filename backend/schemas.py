@@ -117,7 +117,7 @@ class DeviceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    inventory_number: str
+    inventory_number: Optional[str] = None
     serial_number: Optional[str] = None
     manufacturer: str
     model: str
@@ -136,7 +136,7 @@ class DeviceBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    inventory_number: str
+    inventory_number: Optional[str] = None
     manufacturer: str
     model: str
     device_type: DeviceType

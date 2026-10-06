@@ -527,7 +527,7 @@ export default function WarehousePage({ archiveOnly = false }) {
             <Button icon={<InboxOutlined />} onClick={() => navigate('/warehouse/archive')}>Архив</Button>
           )}
           <Button icon={<DownloadOutlined />} loading={exporting} onClick={exportArchive}>
-            Экспорт архива
+            Экспорт по инв. №
           </Button>
           {!archiveMode && <Upload
             accept=".zip,application/zip"

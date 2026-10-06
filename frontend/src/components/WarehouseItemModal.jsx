@@ -64,6 +64,7 @@ export default function WarehouseItemModal({
       values.department_id = values.department_id ?? null
       if (editing) values.branch_id = values.branch_id ?? null
     }
+    if (values.tracking_type === 'asset') values.inventory_number = values.inventory_number?.trim() || null
     setSaving(true)
     try {
       if (editing) {
@@ -160,23 +161,14 @@ export default function WarehouseItemModal({
           </Col>
           {trackingType === 'asset' && <>
             <Col span={12}>
-              {editing ? (
-                <Form.Item
-                  name="inventory_number"
-                  label="Инвентарный №"
-                  extra="После изменения нужно распечатать новую этикетку"
-                  rules={[
-                    { required: true, message: 'Введите инвентарный номер' },
-                    { pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' },
-                  ]}
-                >
-                  <Input placeholder="1-00001" />
-                </Form.Item>
-              ) : (
-                <Form.Item label="Инвентарный №">
-                  <Input value="Присвоится автоматически" disabled />
-                </Form.Item>
-              )}
+              <Form.Item
+                name="inventory_number"
+                label="Инвентарный №"
+                extra="Введите номер с наклейки. Можно заполнить позже"
+                rules={[{ pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' }]}
+              >
+                <Input placeholder="1-00001" allowClear />
+              </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item name="serial_number" label="Серийный №"><Input /></Form.Item>

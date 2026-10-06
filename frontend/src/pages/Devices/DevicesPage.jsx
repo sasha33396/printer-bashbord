@@ -100,6 +100,7 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
     const raw = await form.validateFields()
     const payload = {
       ...raw,
+      inventory_number: raw.inventory_number?.trim() || null,
       ip_address: raw.ip_address?.trim() || null,
       purchase_date:  fromDayjs(raw.purchase_date),
       warranty_until: fromDayjs(raw.warranty_until),
@@ -108,7 +109,7 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
     try {
       if (editing) {
         await api.put(`/devices/${editing.id}`, payload)
-        message.success(payload.inventory_number !== editing.inventory_number
+        message.success(payload.inventory_number && payload.inventory_number !== editing.inventory_number
           ? 'Устройство обновлено. Распечатайте новую этикетку'
           : 'Устройство обновлено')
       } else {
@@ -159,23 +160,14 @@ function DeviceModal({ open, editing, branches, departments, manufacturers, onMa
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
         <Row gutter={16}>
           <Col span={12}>
-            {editing ? (
-              <Form.Item
-                name="inventory_number"
-                label="Инв. номер"
-                extra="После изменения нужно распечатать новую этикетку"
-                rules={[
-                  { required: true, message: 'Введите инвентарный номер' },
-                  { pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' },
-                ]}
-              >
-                <Input placeholder="1-00001" />
-              </Form.Item>
-            ) : (
-              <Form.Item label="Инв. номер">
-                <Input value="Присвоится автоматически" disabled />
-              </Form.Item>
-            )}
+            <Form.Item
+              name="inventory_number"
+              label="Инв. номер"
+              extra="Введите номер с наклейки. Можно заполнить позже"
+              rules={[{ pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' }]}
+            >
+              <Input placeholder="1-00001" allowClear />
+            </Form.Item>
           </Col>
           <Col span={12}>
             <Form.Item name="serial_number" label="Серийный номер">
@@ -432,6 +424,7 @@ export default function DevicesPage() {
       dataIndex: 'inventory_number',
       key: 'inventory_number',
       width: 130,
+      render: (value) => value || '—',
     },
     {
       title: 'Модель',

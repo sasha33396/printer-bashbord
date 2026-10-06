@@ -216,7 +216,7 @@ class OcsAdImportTests(unittest.TestCase):
             self.assertEqual(workplace.employee_id, employee.id)
             self.assertIsNone(workplace.branch_id)
             assets = db.query(WarehouseItem).order_by(WarehouseItem.id).all()
-            self.assertEqual([asset.inventory_number for asset in assets], ["1-00001", "1-00002"])
+            self.assertEqual([asset.inventory_number for asset in assets], [None, None])
             self.assertTrue(all(asset.branch_id is None for asset in assets))
             self.assertTrue(all(asset.placement == "Рабочее место" for asset in assets))
             self.assertEqual(assets[0].os_name, "Windows 11 Pro")
@@ -238,6 +238,18 @@ class OcsAdImportTests(unittest.TestCase):
                 self.assertEqual(after[name], before[name], name)
         self.assertEqual(report["records"][0]["status"], "unchanged")
         self.assertEqual(report["assets_assigned"], 0)
+
+    def test_import_preserves_manually_entered_number_and_never_fills_empty_numbers(self):
+        self.submit()
+        with self.sessions() as db:
+            computer = db.query(WarehouseItem).filter_by(category="Компьютеры").one()
+            computer.inventory_number = "1-00234"
+            db.commit()
+        report = self.submit()
+        self.assertEqual(report["unchanged"], 1)
+        with self.sessions() as db:
+            self.assertEqual(db.query(WarehouseItem).filter_by(category="Компьютеры").one().inventory_number, "1-00234")
+            self.assertIsNone(db.query(WarehouseItem).filter_by(category="Мониторы").one().inventory_number)
 
     def test_confirmed_laptop_names_preview_apply_and_repeat_without_duplicates(self):
         names = (
@@ -557,6 +569,7 @@ class OcsAdImportTests(unittest.TestCase):
         with self.sessions() as db:
             item = db.query(WarehouseItem).filter_by(category="Компьютеры").one()
             item.os_version = "10.0.26200"
+            item.inventory_number = "1-99990"
             db.flush()
             card = _warehouse_card(item, db)
             item.os_name = None

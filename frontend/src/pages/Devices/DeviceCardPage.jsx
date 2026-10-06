@@ -579,7 +579,7 @@ export default function DeviceCardPage() {
                 {statusCfg.label}
               </span>
               <span>
-                <span className="inventory-summary-label">Инв. №</span> {device.inventory_number}
+                <span className="inventory-summary-label">Инв. №</span> {device.inventory_number || '—'}
               </span>
               <span>
                 <span className="inventory-summary-label">Счётчик</span> {device.page_counter ?? '—'}
