@@ -1,7 +1,8 @@
+import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Col, Form, Input, Modal, Popconfirm, Row, Select,
-  Space, Table, Tag, Typography, message,
+  Space, Tag, Typography, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -194,7 +195,11 @@ export default function WorkplacesPage() {
       render: (_, item) => <Space size={4}>
         <Button size="small" type="primary" onClick={() => navigate(`/workplaces/${item.id}`)}>Открыть</Button>
         <Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(item); setModalOpen(true) }} />
-        <Popconfirm title="Удалить рабочее место?" okText="Удалить" cancelText="Отмена" onConfirm={() => remove(item.id)}>
+        <Popconfirm
+          title="Удалить пустое рабочее место?"
+          description="История оборудования сохранится"
+          okText="Удалить" cancelText="Отмена" onConfirm={() => remove(item.id)}
+        >
           <Button size="small" danger icon={<DeleteOutlined />} />
         </Popconfirm>
       </Space>,

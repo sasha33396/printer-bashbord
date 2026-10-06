@@ -15,10 +15,12 @@ from sqlalchemy.orm import Session, joinedload
 from starlette.background import BackgroundTask
 
 from database import get_db
+from equipment_history import actor_name, add_device_event, add_item_event
 from inventory_numbers import inventory_number_lock, inventory_number_owner, require_inventory_number
+from network import normalize_ip_address, normalize_mac_address
 from models import (
     Branch, ConsumableLog, Department, Device, DeviceStatus, DeviceType,
-    ItemType, Manufacturer, RepairRecord, RepairStatus, RepairType, StockMovement,
+    ItemType, Manufacturer, RepairRecord, RepairStatus, RepairType, RepairWorkItem, StockMovement,
     StockMovementType, WarehouseItem, WorkplaceAssetAssignment,
 )
 from photo_storage import (
@@ -104,12 +106,23 @@ def _device_card(device: Device) -> dict:
                     "date": _date_value(record.date),
                     "repair_type": _enum_value(record.repair_type),
                     "repair_status": _enum_value(record.repair_status),
+                    "task_date": _date_value(record.task_date),
+                    "task_url": record.task_url,
+                    "source_location": record.source_location,
+                    "responsible_person": record.responsible_person,
+                    "returned_date": _date_value(record.returned_date),
+                    "connected_date": _date_value(record.connected_date),
                     "description": record.description,
                     "contractor": record.contractor,
                     "cost": record.cost,
                     "page_counter": record.page_counter,
                     "completion_page_counter": record.completion_page_counter,
                     "page_counter_delta": record.page_counter_delta,
+                    "invoice_name": record.invoice_name,
+                    "work_items": [
+                        {"description": item.description, "cost": item.cost}
+                        for item in record.work_items
+                    ],
                     "notes": record.notes,
                 }
                 for record in device.repair_records
@@ -162,6 +175,8 @@ def _warehouse_card(item: WarehouseItem, db: Session) -> dict:
             "serial_number": item.serial_number,
             "manufacturer": item.manufacturer,
             "model": item.model,
+            "ip_address": item.ip_address,
+            "mac_address": item.mac_address,
             "placement": item.placement,
             "condition": item.condition,
             "compatible_printers": item.compatible_printers,
@@ -170,6 +185,8 @@ def _warehouse_card(item: WarehouseItem, db: Session) -> dict:
             "ram_gb": item.ram_gb,
             "processor": item.processor,
             "graphics": item.graphics,
+            "os_name": item.os_name,
+            "os_version": item.os_version,
             "storage_type": item.storage_type,
             "storage_capacity_gb": item.storage_capacity_gb,
             "unit": item.unit,
@@ -200,6 +217,8 @@ def _card_text(card: dict) -> str:
         f"Инвентарный номер: {card['inventory_number']}",
         f"Наименование: {title or '—'}",
         f"Серийный номер: {data.get('serial_number') or '—'}",
+        f"IP-адрес: {data.get('ip_address') or '—'}",
+        *([f"MAC-адрес: {data.get('mac_address') or '—'}"] if "mac_address" in data else []),
         f"Филиал: {data.get('branch') or '—'}",
         f"Отдел: {data.get('department') or '—'}",
         f"Местонахождение: {data.get('placement') or data.get('location') or '—'}",
@@ -224,9 +243,10 @@ def export_inventory_archive(db: Session = Depends(get_db), _: dict = _auth):
         db.query(Device)
         .options(
             joinedload(Device.department).joinedload(Department.branch),
-            joinedload(Device.repair_records),
+            joinedload(Device.repair_records).joinedload(RepairRecord.work_items),
             joinedload(Device.consumable_logs),
         )
+        .filter(Device.inventory_number.isnot(None))
         .order_by(Device.inventory_number)
         .all()
     )
@@ -336,19 +356,34 @@ def _import_device(db: Session, inventory_number: str, data: dict) -> str:
 
     if is_new:
         for record in data.get("repairs") or []:
-            db.add(RepairRecord(
+            repair = RepairRecord(
                 device_id=device.id,
                 date=_parse_optional_date(record.get("date")) or date.today(),
                 repair_type=RepairType(record.get("repair_type") or RepairType.unplanned.value),
                 repair_status=RepairStatus(record.get("repair_status") or RepairStatus.completed.value),
+                task_date=_parse_optional_date(record.get("task_date")),
+                task_url=record.get("task_url"),
+                source_location=record.get("source_location"),
+                responsible_person=record.get("responsible_person"),
+                returned_date=_parse_optional_date(record.get("returned_date")),
+                connected_date=_parse_optional_date(record.get("connected_date")),
                 description=record.get("description") or "Импортированная запись",
                 contractor=record.get("contractor"),
                 cost=record.get("cost") or 0,
                 page_counter=record.get("page_counter"),
                 completion_page_counter=record.get("completion_page_counter"),
                 page_counter_delta=record.get("page_counter_delta"),
+                invoice_name=None,
                 notes=record.get("notes"),
-            ))
+            )
+            db.add(repair)
+            db.flush()
+            for item in record.get("work_items") or []:
+                db.add(RepairWorkItem(
+                    repair_id=repair.id,
+                    description=item.get("description") or "Выполненная работа",
+                    cost=item.get("cost") or 0,
+                ))
         for record in data.get("consumables") or []:
             db.add(ConsumableLog(
                 device_id=device.id,
@@ -384,6 +419,8 @@ def _import_warehouse_item(db: Session, inventory_number: str, data: dict) -> tu
     item.serial_number = data.get("serial_number")
     item.manufacturer = data.get("manufacturer")
     item.model = data.get("model")
+    item.ip_address = normalize_ip_address(data.get("ip_address"))
+    item.mac_address = normalize_mac_address(data.get("mac_address"))
     item.placement = data.get("placement") or "Склад/серверная"
     item.condition = data.get("condition") or "На складе"
     item.compatible_printers = data.get("compatible_printers")
@@ -392,6 +429,10 @@ def _import_warehouse_item(db: Session, inventory_number: str, data: dict) -> tu
     item.ram_gb = data.get("ram_gb")
     item.processor = data.get("processor")
     item.graphics = data.get("graphics")
+    if "os_name" in data:
+        item.os_name = data["os_name"]
+    if "os_version" in data:
+        item.os_version = data["os_version"]
     item.storage_type = data.get("storage_type")
     item.storage_capacity_gb = data.get("storage_capacity_gb")
     item.unit = data.get("unit") or "шт."
@@ -429,7 +470,7 @@ def _card_from_text(content: bytes) -> dict:
 async def import_inventory_archive(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: dict = _auth,
+    current_user: dict = _auth,
 ):
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=422, detail="Выберите ZIP-архив инвентаря")
@@ -491,9 +532,28 @@ async def import_inventory_archive(
                             raise ValueError("в TXT отсутствуют данные карточки")
                         if card.get("entity_type") == "device":
                             action = _import_device(db, inventory_number, card.get("data") or {})
+                            device = db.query(Device).filter(Device.inventory_number == inventory_number).one()
+                            db.expire(device, ["department"])
+                            add_device_event(
+                                db,
+                                device,
+                                category="device",
+                                event_type="imported" if action == "created" else "updated",
+                                title="Устройство импортировано" if action == "created" else "Устройство обновлено импортом",
+                                actor=actor_name(current_user),
+                            )
                             allow_photos = True
                         elif card.get("entity_type") == "warehouse_item":
                             action, item = _import_warehouse_item(db, inventory_number, card.get("data") or {})
+                            db.expire(item, ["branch", "department"])
+                            add_item_event(
+                                db,
+                                item,
+                                category="equipment",
+                                event_type="imported" if action == "created" else "updated",
+                                title="Оборудование импортировано" if action == "created" else "Оборудование обновлено импортом",
+                                actor=actor_name(current_user),
+                            )
                             allow_photos = item.tracking_type == "asset"
                         else:
                             raise ValueError("неизвестный тип записи")

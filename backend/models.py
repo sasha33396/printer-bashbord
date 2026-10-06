@@ -1,9 +1,10 @@
 import enum
+from datetime import datetime, timezone
 from sqlalchemy import (
-    Boolean, Column, Integer, String, Float, Date, Text,
-    ForeignKey, UniqueConstraint, Enum as SAEnum,
+    Boolean, Column, Integer, String, Float, Date, DateTime, Text,
+    ForeignKey, UniqueConstraint, Enum as SAEnum, Index, func,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from database import Base
 
@@ -84,7 +85,7 @@ class Device(Base):
     __tablename__ = "devices"
 
     id = Column(Integer, primary_key=True, index=True)
-    inventory_number = Column(String(100), nullable=False, unique=True, index=True)
+    inventory_number = Column(String(100), nullable=True, unique=True, index=True)
     serial_number = Column(String(100), unique=True, nullable=True, index=True)
     ip_address = Column(String(45), nullable=True)
     page_counter = Column(Integer, nullable=True)
@@ -112,15 +113,39 @@ class RepairRecord(Base):
     date = Column(Date, nullable=False)
     repair_type = Column(SAEnum(RepairType), nullable=False)
     repair_status = Column(SAEnum(RepairStatus), nullable=False, default=RepairStatus.in_progress)
+    task_date = Column(Date, nullable=True)
+    task_url = Column(String(1000), nullable=True)
+    source_location = Column(String(500), nullable=True)
+    responsible_person = Column(String(255), nullable=True)
+    returned_date = Column(Date, nullable=True)
+    connected_date = Column(Date, nullable=True)
     description = Column(Text, nullable=False)
     contractor = Column(String(255))
     cost = Column(Float, default=0.0)
     page_counter = Column(Integer, nullable=True)
     completion_page_counter = Column(Integer, nullable=True)
     page_counter_delta = Column(Integer, nullable=True)
+    invoice_name = Column(String(500), nullable=True)
     notes = Column(Text)
 
     device = relationship("Device", back_populates="repair_records")
+    work_items = relationship(
+        "RepairWorkItem",
+        back_populates="repair",
+        cascade="all, delete-orphan",
+        order_by="RepairWorkItem.id",
+    )
+
+
+class RepairWorkItem(Base):
+    __tablename__ = "repair_work_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    repair_id = Column(Integer, ForeignKey("repair_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    cost = Column(Float, nullable=False, default=0.0)
+
+    repair = relationship("RepairRecord", back_populates="work_items")
 
 
 class ConsumableLog(Base):
@@ -154,6 +179,8 @@ class WarehouseItem(Base):
     serial_number = Column(String(100), nullable=True, index=True)
     manufacturer = Column(String(255), nullable=True)
     model = Column(String(255), nullable=True)
+    ip_address = Column(String(45), nullable=True, index=True)
+    mac_address = Column(String(17), nullable=True, index=True)
     placement = Column(String(100), nullable=False, default="Склад/серверная")
     condition = Column(String(50), nullable=False, default="На складе")
     compatible_printers = Column(Text, nullable=True)
@@ -162,11 +189,15 @@ class WarehouseItem(Base):
     ram_gb = Column(Integer, nullable=True)
     processor = Column(String(255), nullable=True)
     graphics = Column(String(255), nullable=True)
+    os_name = Column(String(255), nullable=True)
+    os_version = Column(String(100), nullable=True)
     storage_type = Column(String(50), nullable=True)
     storage_capacity_gb = Column(Integer, nullable=True)
     unit = Column(String(30), nullable=False, default="шт.")
     min_quantity = Column(Integer, nullable=False, default=0)
     notes = Column(Text)
+    is_archived = Column(Boolean, nullable=False, default=False, index=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     movements = relationship(
         "StockMovement", back_populates="item", cascade="all, delete-orphan"
@@ -193,6 +224,10 @@ class Employee(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     full_name = Column(String(255), nullable=False, index=True)
+    ad_login = Column(String(255), nullable=True)
+    ad_domain = Column(String(255), nullable=True)
+    ad_guid = Column(String(36), nullable=True)
+    ad_sync_values = Column(Text, nullable=True)
     position = Column(String(255), nullable=True)
     branch_id = Column(Integer, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -211,6 +246,7 @@ class Workplace(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, index=True)
+    normalized_name = Column(String(255), nullable=True)
     branch_id = Column(Integer, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
     location = Column(String(255), nullable=True)
@@ -219,6 +255,8 @@ class Workplace(Base):
     photo_hash = Column(String(64), nullable=True)
     status = Column(SAEnum(WorkplaceStatus), nullable=False, default=WorkplaceStatus.vacant)
     notes = Column(Text, nullable=True)
+    is_archived = Column(Boolean, nullable=False, default=False, index=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
 
     branch = relationship("Branch")
     department = relationship("Department")
@@ -230,6 +268,11 @@ class Workplace(Base):
         order_by="WorkplaceAssetAssignment.assigned_at.desc()",
     )
 
+    @validates("name")
+    def normalize_name(self, key, value):
+        self.normalized_name = value.strip().casefold()
+        return value
+
 
 class WorkplaceAssetAssignment(Base):
     __tablename__ = "workplace_asset_assignments"
@@ -240,6 +283,86 @@ class WorkplaceAssetAssignment(Base):
     assigned_at = Column(Date, nullable=False)
     ended_at = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True)
+    employee_name = Column(String(255), nullable=True)
+    inventory_number = Column(String(100), nullable=True)
+    item_name = Column(String(255), nullable=True)
+    item_category = Column(String(100), nullable=True)
+    workplace_name = Column(String(255), nullable=True)
+    branch_name = Column(String(255), nullable=True)
+    department_name = Column(String(255), nullable=True)
 
     workplace = relationship("Workplace", back_populates="assignments")
     item = relationship("WarehouseItem")
+    employee = relationship("Employee")
+
+
+class EquipmentEvent(Base):
+    __tablename__ = "equipment_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    occurred_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+    effective_date = Column(Date, nullable=True, index=True)
+    category = Column(String(30), nullable=False, index=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    entity_type = Column(String(30), nullable=False, index=True)
+    entity_id = Column(Integer, nullable=True, index=True)
+    reference_type = Column(String(30), nullable=True)
+    reference_id = Column(Integer, nullable=True)
+    inventory_number = Column(String(100), nullable=True, index=True)
+    entity_name = Column(String(500), nullable=False)
+    title = Column(String(500), nullable=False)
+    details = Column(Text, nullable=True)
+    actor = Column(String(255), nullable=True, index=True)
+    branch_name = Column(String(255), nullable=True, index=True)
+    department_name = Column(String(255), nullable=True)
+    workplace_name = Column(String(255), nullable=True)
+    employee_name = Column(String(255), nullable=True, index=True)
+    from_value = Column(String(500), nullable=True)
+    to_value = Column(String(500), nullable=True)
+    changes_json = Column(Text, nullable=True)
+
+
+class OcsAssetLink(Base):
+    __tablename__ = "ocs_asset_links"
+    __table_args__ = (
+        UniqueConstraint("source_key", "asset_kind", "external_id", name="uq_ocs_asset_source"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    source_key = Column(String(100), nullable=False)
+    asset_kind = Column(String(20), nullable=False)
+    external_id = Column(String(100), nullable=False)
+    item_id = Column(Integer, ForeignKey("warehouse_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    workplace_id = Column(Integer, ForeignKey("workplaces.id", ondelete="SET NULL"), nullable=True)
+    last_inventory_at = Column(DateTime(timezone=True), nullable=True)
+    sync_values = Column(Text, nullable=True)
+
+
+class OcsImportRun(Base):
+    __tablename__ = "ocs_import_runs"
+
+    id = Column(String(36), primary_key=True)
+    source_key = Column(String(100), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    actor = Column(String(255), nullable=True)
+    report_json = Column(Text, nullable=False)
+
+
+Index(
+    "uq_employees_ad_identity",
+    func.coalesce(func.lower(func.trim(Employee.ad_domain)), ""),
+    func.lower(func.trim(Employee.ad_login)),
+    unique=True,
+    sqlite_where=Employee.ad_login.is_not(None) & (func.trim(Employee.ad_login) != ""),
+)
+Index("uq_employees_ad_guid", func.lower(Employee.ad_guid), unique=True)
+Index(
+    "uq_workplaces_unlocated_name", Workplace.normalized_name,
+    unique=True, sqlite_where=Workplace.branch_id.is_(None),
+)

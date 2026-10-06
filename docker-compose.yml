@@ -12,6 +12,7 @@ services:
     environment:
       - DATABASE_URL=sqlite:///./data/printer_dashboard.db
       - PHOTO_DIRECTORY=/app/equipment_photos
+      - REPAIR_INVOICE_DIRECTORY=/app/data/repair_invoices
 
   frontend:
     build: ./frontend

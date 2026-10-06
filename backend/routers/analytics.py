@@ -31,7 +31,7 @@ _auth = Depends(get_current_user)
 
 class DeviceCostRow(BaseModel):
     device_id: int
-    inventory_number: str
+    inventory_number: Optional[str] = None
     manufacturer: Optional[str] = None
     model: str
     device_type: Optional[str] = None

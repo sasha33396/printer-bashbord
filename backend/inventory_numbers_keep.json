@@ -1,0 +1,13 @@
+[
+  {"inventory_number": "1-00003", "category": "Компьютеры", "name": "sar-proxima-1", "serial_number": "MSB0A6N6S0102522"},
+  {"inventory_number": "1-00004", "category": "Мониторы", "name": "Монитор Iiyama/XUB2792HSU-W6", "serial_number": "1233841300480"},
+  {"inventory_number": "1-00005", "category": "Мониторы", "name": "Монитор Iiyama/XUB2792YSU-W5Y", "serial_number": "1213031111987"},
+  {"inventory_number": "1-00006", "category": "Мониторы", "name": "Монитор Iiyama/XUB2792YSU-W5Y", "serial_number": "1213031112022"},
+  {"inventory_number": "1-00007", "category": "Компьютеры", "name": "Компьютер IPU Office A310H4TF", "serial_number": "2240822KP40020"},
+  {"inventory_number": "1-00167", "category": "Ноутбуки", "name": "Ноутбук Lenovo IdeaPad L340-15API", "serial_number": "PF2T8P1P"},
+  {"inventory_number": "1-00234", "category": "Компьютеры", "name": "SAR-PROXIMA-23", "serial_number": null},
+  {"inventory_number": "1-00235", "category": "Мониторы", "name": "PL2792H", "serial_number": "1176620411358"},
+  {"inventory_number": "1-00236", "category": "Мониторы", "name": "PL2792H", "serial_number": "1213033611828"},
+  {"inventory_number": "1-00270", "category": "Компьютеры", "name": "WS-RAZRAB-2", "serial_number": null},
+  {"inventory_number": "1-00028", "category": "Мониторы", "name": "Монитор MSI", "serial_number": "13500491"}
+]

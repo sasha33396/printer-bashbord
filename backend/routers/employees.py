@@ -2,6 +2,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from database import get_db
 from models import Branch, Department, Employee, Workplace
@@ -10,6 +12,27 @@ from schemas import EmployeeCreate, EmployeeRead, EmployeeUpdate
 
 router = APIRouter()
 _auth = Depends(get_current_user)
+
+
+def validate_ad_identity(db, login, domain, guid, exclude_id=None):
+    query = db.query(Employee)
+    if exclude_id is not None:
+        query = query.filter(Employee.id != exclude_id)
+    if login and query.filter(
+        func.lower(func.trim(Employee.ad_login)) == login,
+        func.coalesce(func.lower(func.trim(Employee.ad_domain)), "") == (domain or ""),
+    ).first():
+        raise HTTPException(status_code=409, detail="Сотрудник с таким логином AD уже существует в домене")
+    if guid and query.filter(func.lower(Employee.ad_guid) == guid).first():
+        raise HTTPException(status_code=409, detail="Сотрудник с таким GUID AD уже существует")
+
+
+def _commit(db):
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Логин или GUID AD уже используется") from exc
 
 
 def _text(value: Optional[str], required: bool = False) -> Optional[str]:
@@ -35,12 +58,20 @@ def _validate_location(db: Session, branch_id: Optional[int], department_id: Opt
 @router.get("", response_model=List[EmployeeRead])
 def list_employees(
     active_only: bool = False,
+    ad_login: Optional[str] = None,
+    ad_domain: Optional[str] = None,
     db: Session = Depends(get_db),
     _: dict = _auth,
 ):
     query = db.query(Employee).options(joinedload(Employee.branch), joinedload(Employee.department))
     if active_only:
         query = query.filter(Employee.is_active.is_(True))
+    if ad_login is not None:
+        query = query.filter(func.lower(func.trim(Employee.ad_login)) == ad_login.strip().lower())
+    if ad_domain is not None:
+        query = query.filter(
+            func.coalesce(func.lower(func.trim(Employee.ad_domain)), "") == ad_domain.strip().lower().rstrip("."),
+        )
     return query.order_by(Employee.full_name).all()
 
 
@@ -51,8 +82,12 @@ def create_employee(
     _: dict = _auth,
 ):
     _validate_location(db, payload.branch_id, payload.department_id)
+    validate_ad_identity(db, payload.ad_login, payload.ad_domain, payload.ad_guid)
     employee = Employee(
         full_name=_text(payload.full_name, required=True),
+        ad_login=payload.ad_login,
+        ad_domain=payload.ad_domain,
+        ad_guid=payload.ad_guid,
         position=_text(payload.position),
         branch_id=payload.branch_id,
         department_id=payload.department_id,
@@ -62,7 +97,7 @@ def create_employee(
         notes=_text(payload.notes),
     )
     db.add(employee)
-    db.commit()
+    _commit(db)
     db.refresh(employee)
     return employee
 
@@ -78,6 +113,11 @@ def update_employee(
     if not employee:
         raise HTTPException(status_code=404, detail="Сотрудник не найден")
     data = payload.model_dump(exclude_unset=True)
+    validate_ad_identity(
+        db, data.get("ad_login", employee.ad_login),
+        data.get("ad_domain", employee.ad_domain),
+        data.get("ad_guid", employee.ad_guid), exclude_id=employee.id,
+    )
     if "branch_id" in data and data["branch_id"] != employee.branch_id and "department_id" not in data:
         data["department_id"] = None
     _validate_location(
@@ -94,7 +134,13 @@ def update_employee(
             )
         next_branch_id = data.get("branch_id", employee.branch_id)
         next_department_id = data.get("department_id", employee.department_id)
-        if next_branch_id != workplace.branch_id or next_department_id != workplace.department_id:
+        if (
+            next_branch_id is not None and workplace.branch_id is not None
+            and next_branch_id != workplace.branch_id
+        ) or (
+            next_department_id is not None and workplace.department_id is not None
+            and next_department_id != workplace.department_id
+        ):
             raise HTTPException(
                 status_code=409,
                 detail="Сначала измените филиал или отдел рабочего места сотрудника",
@@ -104,7 +150,7 @@ def update_employee(
             data[field] = _text(data[field], required=field == "full_name")
     for field, value in data.items():
         setattr(employee, field, value)
-    db.commit()
+    _commit(db)
     db.refresh(employee)
     return employee
 

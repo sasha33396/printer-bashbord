@@ -1,10 +1,11 @@
+import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button, DatePicker, Empty, Form, Input, Modal, Popconfirm,
-  Select, Space, Spin, Table, Tag, Typography, message,
+  Select, Space, Spin, Tag, Typography, message,
 } from 'antd'
 import {
-  ArrowLeftOutlined, CameraOutlined, DesktopOutlined, PlusOutlined, PrinterOutlined,
+  ArrowLeftOutlined, CameraOutlined, DesktopOutlined, EditOutlined, PlusOutlined, PrinterOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -12,6 +13,7 @@ import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import { apiError, WORKPLACE_STATUS } from './WorkplacesPage'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
+import WarehouseItemModal from '../../components/WarehouseItemModal'
 
 const fmtDate = (value) => value ? dayjs(value).format('DD.MM.YYYY') : '—'
 
@@ -185,6 +187,8 @@ export default function WorkplaceCardPage() {
   const [assignmentOpen, setAssignmentOpen] = useState(false)
   const [endingId, setEndingId] = useState(null)
   const [photoItem, setPhotoItem] = useState(null)
+  const [editingItem, setEditingItem] = useState(null)
+  const [editingId, setEditingId] = useState(null)
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false)
   const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false)
   const [workplacePhotoUrl, setWorkplacePhotoUrl] = useState(null)
@@ -252,6 +256,23 @@ export default function WorkplaceCardPage() {
     }
   }
 
+  const editItem = async (item) => {
+    setEditingId(item.id)
+    try {
+      const { data } = await api.get(`/warehouse/items/${item.id}`)
+      if (data.is_archived || data.workplace?.id !== workplace.id) {
+        message.warning('Закрепление оборудования изменилось. Обновите карточку рабочего места')
+        await load()
+        return
+      }
+      setEditingItem(data)
+    } catch (error) {
+      message.error(apiError(error, 'Не удалось загрузить оборудование для редактирования'))
+    } finally {
+      setEditingId(null)
+    }
+  }
+
   const clearPhoto = async () => {
     try {
       await api.delete(`/workplaces/${workplace.id}/photo`)
@@ -269,7 +290,10 @@ export default function WorkplaceCardPage() {
 
   const status = WORKPLACE_STATUS[workplace.status] || { label: workplace.status, color: 'default' }
   const historyColumns = [
-    { title: 'Оборудование', key: 'item', render: (_, row) => `${row.item.category} · ${row.item.inventory_number || 'без №'} · ${row.item.name}` },
+    { title: 'Оборудование', key: 'item', render: (_, row) => `${row.item_category || row.item.category} · ${row.inventory_number || row.item.inventory_number || 'без №'} · ${row.item_name || row.item.name}` },
+    { title: 'Состояние', key: 'assignment_status', width: 125, render: (_, row) => <Tag color={row.ended_at ? 'default' : 'green'}>{row.ended_at ? 'Снято' : 'Установлено'}</Tag> },
+    { title: 'Сотрудник', dataIndex: 'employee_name', render: (value) => value || 'Не назначен' },
+    { title: 'Рабочее место', dataIndex: 'workplace_name', render: (value) => value || '—' },
     { title: 'Установлено', dataIndex: 'assigned_at', width: 120, render: fmtDate },
     { title: 'Снято', dataIndex: 'ended_at', width: 120, render: fmtDate },
     { title: 'Примечание', dataIndex: 'notes', render: (value) => value || '—' },
@@ -363,7 +387,13 @@ export default function WorkplaceCardPage() {
                 <span>{assignment.item.category} · Инв. № {assignment.item.inventory_number || '—'} · S/N {assignment.item.serial_number || '—'}</span>
               </div>
               <Tag>{assignment.item.condition}</Tag>
-              <Space size={4}>
+              <Space size={4} wrap>
+                <Button
+                  size="small" icon={<EditOutlined />}
+                  loading={editingId === assignment.item.id}
+                  disabled={editingId !== null && editingId !== assignment.item.id}
+                  onClick={() => editItem(assignment.item)}
+                >Редактировать</Button>
                 <Button size="small" icon={<CameraOutlined />} onClick={() => setPhotoItem(assignment.item)}>Фото</Button>
                 <Button size="small" onClick={() => navigate(`/warehouse/items/${assignment.item.id}`)}>Открыть</Button>
                 <Popconfirm
@@ -393,6 +423,12 @@ export default function WorkplaceCardPage() {
     <AssignmentModal
       open={assignmentOpen} workplace={workplace}
       onClose={() => setAssignmentOpen(false)} onSaved={() => { setAssignmentOpen(false); load() }}
+    />
+    <WarehouseItemModal
+      open={Boolean(editingItem)} editing={editingItem} locationLocked
+      categories={workplace.current_assets.map(({ item }) => item.category)}
+      onClose={() => setEditingItem(null)}
+      onSaved={() => { setEditingItem(null); load() }}
     />
     <WorkplacePhotoPicker
       open={photoPickerOpen}

@@ -1,7 +1,8 @@
+import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useState } from 'react'
 import {
   Button, Col, Form, Input, Modal, Popconfirm, Row, Select,
-  Space, Switch, Table, Tag, Typography, message,
+  Space, Switch, Tag, Typography, message,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import api from '../../api/api'
@@ -56,13 +57,18 @@ export default function EmployeesTab() {
 
   const save = async () => {
     const values = await form.validateFields()
+    const payload = {
+      ...values,
+      ad_login: values.ad_login || null,
+      ad_domain: values.ad_domain || null,
+    }
     setSaving(true)
     try {
       if (editing) {
-        await api.put(`/employees/${editing.id}`, values)
+        await api.put(`/employees/${editing.id}`, payload)
         message.success('Сотрудник обновлён')
       } else {
-        await api.post('/employees', values)
+        await api.post('/employees', payload)
         message.success('Сотрудник добавлен')
       }
       setOpen(false)
@@ -90,6 +96,13 @@ export default function EmployeesTab() {
 
   const columns = [
     { title: 'ФИО', dataIndex: 'full_name', key: 'full_name' },
+    {
+      title: 'Логин AD', dataIndex: 'ad_login', key: 'ad_login',
+      render: (value, item) => value ? <Space direction="vertical" size={0}>
+        <span>{value}</span>
+        {item.ad_domain && <Typography.Text type="secondary">{item.ad_domain}</Typography.Text>}
+      </Space> : '—',
+    },
     { title: 'Должность', dataIndex: 'position', key: 'position', render: (value) => value || '—' },
     {
       title: 'Филиал / отдел', key: 'location',
@@ -139,6 +152,24 @@ export default function EmployeesTab() {
           <Col span={24}>
             <Form.Item name="full_name" label="ФИО" rules={[{ required: true, message: 'Укажите ФИО' }]}>
               <Input placeholder="Иванов Иван Иванович" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item
+              name="ad_login" label="Логин AD"
+              extra="Короткий логин пользователя, без домена"
+              rules={[{
+                pattern: /^[^\\@\s]*$/,
+                transform: (value) => value?.trim(),
+                message: 'Укажите логин без домена и пробелов',
+              }]}
+            >
+              <Input placeholder="m.shutov" maxLength={255} allowClear />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="ad_domain" label="Домен AD">
+              <Input placeholder="ruskon.local" maxLength={255} allowClear />
             </Form.Item>
           </Col>
           <Col span={12}><Form.Item name="position" label="Должность"><Input /></Form.Item></Col>

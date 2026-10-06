@@ -58,6 +58,21 @@ body {
   max-width: 100%;
 }
 
+.history-event-type {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.history-change-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.7fr) minmax(160px, 1fr) auto minmax(160px, 1fr);
+  align-items: start;
+  gap: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .inventory-detail-page {
   width: 100%;
   max-width: 1480px;
@@ -200,6 +215,18 @@ body {
 .inventory-detail-empty {
   color: #9ca3af;
   font-weight: 400;
+}
+
+.repair-report-preview {
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #f0f0f0;
+  border-radius: 10px;
+  background: #fafafa;
+  color: #1f1f1f;
+  font: inherit;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .workplace-detail-page {
@@ -445,6 +472,40 @@ body {
   font-size: 13px;
 }
 
+.equipment-photo-paste {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px dashed #b8c4d5;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #475569;
+  font: inherit;
+  cursor: pointer;
+}
+
+.equipment-photo-paste small {
+  flex-basis: 100%;
+  color: #6b7280;
+}
+
+.equipment-photo-paste:hover,
+.equipment-photo-paste:focus-visible {
+  border-color: #1677ff;
+  outline: 2px solid #91caff;
+  outline-offset: 2px;
+}
+
+.equipment-photo-paste[aria-disabled="true"] {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .equipment-photos-loading {
   display: grid;
   min-height: 150px;
@@ -585,6 +646,15 @@ body {
 
   .page-header {
     align-items: flex-start;
+  }
+
+  .history-change-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .history-change-row > span:nth-of-type(2) {
+    display: none;
   }
 
   .page-header .ant-typography {

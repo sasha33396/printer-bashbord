@@ -1,14 +1,19 @@
 from datetime import date as Date, datetime as DateTime
-from typing import Annotated, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from network import normalize_ip_address
+from network import normalize_ip_address, normalize_mac_address
+from ad_identity import normalize_ad_domain, normalize_ad_guid, normalize_ad_login
 from models import (
     DeviceType, DeviceStatus, RepairType, RepairStatus, ItemType, StockMovementType,
     WorkplaceStatus,
 )
 
 IPAddress = Annotated[Optional[str], BeforeValidator(normalize_ip_address)]
+ADLogin = Annotated[Optional[str], BeforeValidator(normalize_ad_login)]
+ADDomain = Annotated[Optional[str], BeforeValidator(normalize_ad_domain)]
+ADGuid = Annotated[Optional[str], BeforeValidator(normalize_ad_guid)]
+MACAddress = Annotated[Optional[str], BeforeValidator(normalize_mac_address)]
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +117,7 @@ class DeviceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    inventory_number: str
+    inventory_number: Optional[str] = None
     serial_number: Optional[str] = None
     manufacturer: str
     model: str
@@ -131,7 +136,7 @@ class DeviceBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    inventory_number: str
+    inventory_number: Optional[str] = None
     manufacturer: str
     model: str
     device_type: DeviceType
@@ -149,15 +154,36 @@ class InventoryLookupRead(BaseModel):
 # RepairRecord
 # ---------------------------------------------------------------------------
 
+class RepairWorkItemInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    description: str = Field(min_length=1)
+    cost: float = Field(default=0.0, ge=0)
+
+
+class RepairWorkItemRead(RepairWorkItemInput):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
 class RepairRecordCreate(BaseModel):
     device_id: int
     date: Date
     repair_type: RepairType
     repair_status: RepairStatus = RepairStatus.in_progress
+    task_date: Optional[Date] = None
+    task_url: Optional[str] = Field(default=None, max_length=1000)
+    source_location: Optional[str] = Field(default=None, max_length=500)
+    responsible_person: Optional[str] = Field(default=None, max_length=255)
+    returned_date: Optional[Date] = None
+    connected_date: Optional[Date] = None
     description: str
     contractor: Optional[str] = None
-    cost: float = 0.0
+    cost: float = Field(default=0.0, ge=0)
     page_counter: Optional[int] = None
+    completion_page_counter: Optional[int] = Field(default=None, ge=0)
+    work_items: List[RepairWorkItemInput] = Field(default_factory=list)
     notes: Optional[str] = None
 
 
@@ -166,10 +192,18 @@ class RepairRecordUpdate(BaseModel):
     date: Optional[Date] = None
     repair_type: Optional[RepairType] = None
     repair_status: Optional[RepairStatus] = None
+    task_date: Optional[Date] = None
+    task_url: Optional[str] = Field(default=None, max_length=1000)
+    source_location: Optional[str] = Field(default=None, max_length=500)
+    responsible_person: Optional[str] = Field(default=None, max_length=255)
+    returned_date: Optional[Date] = None
+    connected_date: Optional[Date] = None
     description: Optional[str] = None
     contractor: Optional[str] = None
-    cost: Optional[float] = None
+    cost: Optional[float] = Field(default=None, ge=0)
     page_counter: Optional[int] = None
+    completion_page_counter: Optional[int] = Field(default=None, ge=0)
+    work_items: Optional[List[RepairWorkItemInput]] = None
     notes: Optional[str] = None
 
 
@@ -182,12 +216,20 @@ class RepairRecordRead(BaseModel):
     date: Date
     repair_type: RepairType
     repair_status: RepairStatus
+    task_date: Optional[Date] = None
+    task_url: Optional[str] = None
+    source_location: Optional[str] = None
+    responsible_person: Optional[str] = None
+    returned_date: Optional[Date] = None
+    connected_date: Optional[Date] = None
     description: str
     contractor: Optional[str] = None
     cost: float
     page_counter: Optional[int] = None
     completion_page_counter: Optional[int] = None
     page_counter_delta: Optional[int] = None
+    invoice_name: Optional[str] = None
+    work_items: List[RepairWorkItemRead] = Field(default_factory=list)
     notes: Optional[str] = None
 
 
@@ -237,13 +279,15 @@ class WarehouseItemCreate(BaseModel):
     sku: Optional[str] = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(min_length=1, max_length=100)
-    branch_id: int
+    branch_id: Optional[int] = None
     department_id: Optional[int] = None
     tracking_type: str = Field(default="quantity", pattern="^(quantity|asset)$")
     inventory_number: Optional[str] = Field(default=None, max_length=100)
     serial_number: Optional[str] = Field(default=None, max_length=100)
     manufacturer: Optional[str] = Field(default=None, max_length=255)
     model: Optional[str] = Field(default=None, max_length=255)
+    ip_address: IPAddress = None
+    mac_address: MACAddress = None
     placement: str = Field(default="Склад/серверная", min_length=1, max_length=100)
     condition: str = Field(default="На складе", min_length=1, max_length=50)
     compatible_printers: Optional[str] = None
@@ -252,6 +296,8 @@ class WarehouseItemCreate(BaseModel):
     ram_gb: Optional[int] = Field(default=None, ge=0)
     processor: Optional[str] = Field(default=None, max_length=255)
     graphics: Optional[str] = Field(default=None, max_length=255)
+    os_name: Optional[str] = Field(default=None, max_length=255)
+    os_version: Optional[str] = Field(default=None, max_length=100)
     storage_type: Optional[str] = Field(default=None, max_length=50)
     storage_capacity_gb: Optional[int] = Field(default=None, ge=0)
     unit: str = Field(default="шт.", min_length=1, max_length=30)
@@ -271,6 +317,8 @@ class WarehouseItemUpdate(BaseModel):
     serial_number: Optional[str] = Field(default=None, max_length=100)
     manufacturer: Optional[str] = Field(default=None, max_length=255)
     model: Optional[str] = Field(default=None, max_length=255)
+    ip_address: IPAddress = None
+    mac_address: MACAddress = None
     placement: Optional[str] = Field(default=None, min_length=1, max_length=100)
     condition: Optional[str] = Field(default=None, min_length=1, max_length=50)
     compatible_printers: Optional[str] = None
@@ -279,6 +327,8 @@ class WarehouseItemUpdate(BaseModel):
     ram_gb: Optional[int] = Field(default=None, ge=0)
     processor: Optional[str] = Field(default=None, max_length=255)
     graphics: Optional[str] = Field(default=None, max_length=255)
+    os_name: Optional[str] = Field(default=None, max_length=255)
+    os_version: Optional[str] = Field(default=None, max_length=100)
     storage_type: Optional[str] = Field(default=None, max_length=50)
     storage_capacity_gb: Optional[int] = Field(default=None, ge=0)
     unit: Optional[str] = Field(default=None, min_length=1, max_length=30)
@@ -291,6 +341,7 @@ class WarehouseWorkplaceBrief(BaseModel):
 
     id: int
     name: str
+    location: Optional[str] = None
 
 
 class EquipmentPhotoRead(BaseModel):
@@ -315,6 +366,8 @@ class WarehouseItemRead(BaseModel):
     serial_number: Optional[str] = None
     manufacturer: Optional[str] = None
     model: Optional[str] = None
+    ip_address: Optional[str] = None
+    mac_address: Optional[str] = None
     placement: str
     condition: str
     compatible_printers: Optional[str] = None
@@ -323,6 +376,8 @@ class WarehouseItemRead(BaseModel):
     ram_gb: Optional[int] = None
     processor: Optional[str] = None
     graphics: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
     storage_type: Optional[str] = None
     storage_capacity_gb: Optional[int] = None
     unit: str
@@ -330,6 +385,9 @@ class WarehouseItemRead(BaseModel):
     current_quantity: int
     notes: Optional[str] = None
     workplace: Optional[WarehouseWorkplaceBrief] = None
+    responsible_person: Optional[str] = None
+    is_archived: bool = False
+    archived_at: Optional[DateTime] = None
 
 
 class StockMovementCreate(BaseModel):
@@ -356,6 +414,9 @@ class StockMovementRead(BaseModel):
 
 class EmployeeCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
+    ad_login: ADLogin = Field(default=None, max_length=255)
+    ad_domain: ADDomain = Field(default=None, max_length=255)
+    ad_guid: ADGuid = None
     position: Optional[str] = Field(default=None, max_length=255)
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
@@ -367,6 +428,9 @@ class EmployeeCreate(BaseModel):
 
 class EmployeeUpdate(BaseModel):
     full_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    ad_login: ADLogin = Field(default=None, max_length=255)
+    ad_domain: ADDomain = Field(default=None, max_length=255)
+    ad_guid: ADGuid = None
     position: Optional[str] = Field(default=None, max_length=255)
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
@@ -381,6 +445,9 @@ class EmployeeRead(BaseModel):
 
     id: int
     full_name: str
+    ad_login: Optional[str] = None
+    ad_domain: Optional[str] = None
+    ad_guid: Optional[str] = None
     position: Optional[str] = None
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
@@ -398,7 +465,7 @@ class EmployeeRead(BaseModel):
 
 class WorkplaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    branch_id: int
+    branch_id: Optional[int] = None
     department_id: Optional[int] = None
     location: Optional[str] = Field(default=None, max_length=255)
     employee_id: Optional[int] = None
@@ -445,6 +512,12 @@ class WorkplaceAssignmentEnd(BaseModel):
     notes: Optional[str] = None
 
 
+class WorkplaceTransfer(BaseModel):
+    workplace_id: int
+    transfer_date: Date
+    notes: Optional[str] = None
+
+
 class WorkplaceAssignmentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -454,6 +527,14 @@ class WorkplaceAssignmentRead(BaseModel):
     assigned_at: Date
     ended_at: Optional[Date] = None
     notes: Optional[str] = None
+    employee_id: Optional[int] = None
+    employee_name: Optional[str] = None
+    inventory_number: Optional[str] = None
+    item_name: Optional[str] = None
+    item_category: Optional[str] = None
+    workplace_name: Optional[str] = None
+    branch_name: Optional[str] = None
+    department_name: Optional[str] = None
     item: WorkplaceAssetBrief
 
 
@@ -473,8 +554,43 @@ class WorkplaceRead(BaseModel):
     notes: Optional[str] = None
     photo_item_id: Optional[int] = None
     has_photo: bool = False
+    is_archived: bool = False
+    archived_at: Optional[DateTime] = None
     current_assets: List[WorkplaceAssignmentRead] = Field(default_factory=list)
     assignment_history: List[WorkplaceAssignmentRead] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Global equipment history
+# ---------------------------------------------------------------------------
+
+class EquipmentEventRead(BaseModel):
+    id: int
+    occurred_at: DateTime
+    effective_date: Optional[Date] = None
+    category: str
+    event_type: str
+    entity_type: str
+    entity_id: Optional[int] = None
+    reference_type: Optional[str] = None
+    reference_id: Optional[int] = None
+    inventory_number: Optional[str] = None
+    entity_name: str
+    title: str
+    details: Optional[str] = None
+    actor: Optional[str] = None
+    branch_name: Optional[str] = None
+    department_name: Optional[str] = None
+    workplace_name: Optional[str] = None
+    employee_name: Optional[str] = None
+    from_value: Optional[str] = None
+    to_value: Optional[str] = None
+    changes: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EquipmentEventPage(BaseModel):
+    total: int
+    items: List[EquipmentEventRead]
 
 
 # ---------------------------------------------------------------------------

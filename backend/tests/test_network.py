@@ -1,6 +1,6 @@
 import unittest
 
-from network import normalize_ip_address
+from network import normalize_ip_address, normalize_mac_address
 
 
 class IPAddressTests(unittest.TestCase):
@@ -19,6 +19,24 @@ class IPAddressTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     normalize_ip_address(value)
+
+
+class MACAddressTests(unittest.TestCase):
+    def test_optional_address(self):
+        for value in (None, "", "   "):
+            with self.subTest(value=value):
+                self.assertIsNone(normalize_mac_address(value))
+
+    def test_valid_addresses_are_normalized(self):
+        for value in ("aa:bb:cc:dd:ee:ff", "AA-BB-CC-DD-EE-FF", "aabb.ccdd.eeff", "aabbccddeeff"):
+            with self.subTest(value=value):
+                self.assertEqual(normalize_mac_address(value), "AA:BB:CC:DD:EE:FF")
+
+    def test_invalid_addresses(self):
+        for value in ("AA:BB:CC:DD:EE", "GG:BB:CC:DD:EE:FF", "printer", 123):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    normalize_mac_address(value)
 
 
 if __name__ == "__main__":

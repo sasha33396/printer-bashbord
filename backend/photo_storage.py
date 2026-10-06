@@ -19,6 +19,13 @@ IMAGE_TYPES = {
 }
 
 
+def equipment_photo_key(kind: str, entity_id: int, inventory_number: str | None) -> str:
+    """Unlabelled assets own a separate album; released numbers can be reused."""
+    if kind not in {"device", "warehouse_item"} or not isinstance(entity_id, int) or entity_id < 1:
+        raise ValueError("Некорректная карточка оборудования")
+    return (inventory_number or "").strip() or f"unassigned-{kind}-{entity_id}"
+
+
 def inventory_folder_name(inventory_number: str) -> str:
     value = inventory_number.strip()
     if not value:

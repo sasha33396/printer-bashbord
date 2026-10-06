@@ -16,6 +16,8 @@ Base = declarative_base()
 
 
 def initialize_database():
+    from schema_migrations import allow_empty_device_inventory
+    allow_empty_device_inventory(engine)
     Base.metadata.create_all(bind=engine)
     # create_all does not add columns to existing installations.
     with engine.begin() as connection:
@@ -35,6 +37,13 @@ def initialize_database():
             ("repair_status", "VARCHAR(20) NOT NULL DEFAULT 'completed'"),
             ("completion_page_counter", "INTEGER"),
             ("page_counter_delta", "INTEGER"),
+            ("task_date", "DATE"),
+            ("task_url", "VARCHAR(1000)"),
+            ("source_location", "VARCHAR(500)"),
+            ("responsible_person", "VARCHAR(255)"),
+            ("returned_date", "DATE"),
+            ("connected_date", "DATE"),
+            ("invoice_name", "VARCHAR(500)"),
         ):
             if name not in repair_columns:
                 connection.execute(text(f"ALTER TABLE repair_records ADD COLUMN {name} {sql_type}"))
@@ -51,6 +60,8 @@ def initialize_database():
             ("serial_number", "VARCHAR(100)"),
             ("manufacturer", "VARCHAR(255)"),
             ("model", "VARCHAR(255)"),
+            ("ip_address", "VARCHAR(45)"),
+            ("mac_address", "VARCHAR(17)"),
             ("placement", "VARCHAR(100) NOT NULL DEFAULT 'Склад/серверная'"),
             ("condition", "VARCHAR(50) NOT NULL DEFAULT 'На складе'"),
             ("compatible_printers", "TEXT"),
@@ -59,8 +70,12 @@ def initialize_database():
             ("ram_gb", "INTEGER"),
             ("processor", "VARCHAR(255)"),
             ("graphics", "VARCHAR(255)"),
+            ("os_name", "VARCHAR(255)"),
+            ("os_version", "VARCHAR(100)"),
             ("storage_type", "VARCHAR(50)"),
             ("storage_capacity_gb", "INTEGER"),
+            ("is_archived", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("archived_at", "DATETIME"),
         ):
             if name not in warehouse_columns:
                 connection.execute(text(f"ALTER TABLE warehouse_items ADD COLUMN {name} {sql_type}"))
@@ -86,19 +101,90 @@ def initialize_database():
             "CREATE INDEX IF NOT EXISTS ix_warehouse_items_serial_number "
             "ON warehouse_items (serial_number)"
         ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_ip_address "
+            "ON warehouse_items (ip_address)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_mac_address "
+            "ON warehouse_items (mac_address)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_items_is_archived "
+            "ON warehouse_items (is_archived)"
+        ))
 
         workplace_columns = {
             column["name"] for column in inspect(connection).get_columns("workplaces")
         }
         for name, sql_type in (
+            ("normalized_name", "VARCHAR(255)"),
             ("photo_item_id", "INTEGER"),
             ("photo_hash", "VARCHAR(64)"),
+            ("is_archived", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("archived_at", "DATETIME"),
         ):
             if name not in workplace_columns:
                 connection.execute(text(f"ALTER TABLE workplaces ADD COLUMN {name} {sql_type}"))
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_workplaces_photo_item_id "
             "ON workplaces (photo_item_id)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_workplaces_is_archived "
+            "ON workplaces (is_archived)"
+        ))
+        for workplace in connection.execute(text("SELECT id, name FROM workplaces WHERE normalized_name IS NULL")):
+            connection.execute(
+                text("UPDATE workplaces SET normalized_name = :name WHERE id = :id"),
+                {"name": workplace.name.strip().casefold(), "id": workplace.id},
+            )
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_workplaces_unlocated_name "
+            "ON workplaces (normalized_name) WHERE branch_id IS NULL"
+        ))
+
+        employee_columns = {
+            column["name"] for column in inspect(connection).get_columns("employees")
+        }
+        for name, sql_type in (
+            ("ad_login", "VARCHAR(255)"),
+            ("ad_domain", "VARCHAR(255)"),
+            ("ad_guid", "VARCHAR(36)"),
+            ("ad_sync_values", "TEXT"),
+        ):
+            if name not in employee_columns:
+                connection.execute(text(f"ALTER TABLE employees ADD COLUMN {name} {sql_type}"))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_ad_identity "
+            "ON employees (COALESCE(LOWER(TRIM(ad_domain)), ''), LOWER(TRIM(ad_login))) "
+            "WHERE ad_login IS NOT NULL AND TRIM(ad_login) <> ''"
+        ))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_ad_guid "
+            "ON employees (LOWER(ad_guid)) WHERE ad_guid IS NOT NULL"
+        ))
+
+        assignment_columns = {
+            column["name"] for column in inspect(connection).get_columns("workplace_asset_assignments")
+        }
+        for name, sql_type in (
+            ("employee_id", "INTEGER"),
+            ("employee_name", "VARCHAR(255)"),
+            ("inventory_number", "VARCHAR(100)"),
+            ("item_name", "VARCHAR(255)"),
+            ("item_category", "VARCHAR(100)"),
+            ("workplace_name", "VARCHAR(255)"),
+            ("branch_name", "VARCHAR(255)"),
+            ("department_name", "VARCHAR(255)"),
+        ):
+            if name not in assignment_columns:
+                connection.execute(text(
+                    f"ALTER TABLE workplace_asset_assignments ADD COLUMN {name} {sql_type}"
+                ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_workplace_asset_assignments_employee_id "
+            "ON workplace_asset_assignments (employee_id)"
         ))
 
 

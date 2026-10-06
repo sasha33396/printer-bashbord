@@ -1,16 +1,21 @@
+import Table from '../../components/FilterableTable'
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Button, Tag, Table, Space, Modal, Form,
+  Button, Tag, Space, Modal, Form,
   Input, InputNumber, Select, DatePicker, Popconfirm, Typography,
   Tabs, Statistic, Row, Col, message, Spin,
 } from 'antd'
 import {
-  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CopyOutlined, PrinterOutlined,
+  ArrowLeftOutlined, PlusOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CopyOutlined,
+  FilePdfOutlined, FileTextOutlined, HistoryOutlined, PrinterOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
+import RepairEditorModal from '../../components/RepairEditorModal'
+import RepairReportModal from '../../components/RepairReportModal'
+import DeviceModal from '../../components/DeviceModal'
 import { printBarcodeLabel } from '../../utils/barcode'
 import { copyText, deviceWebUrl } from '../../utils/network'
 
@@ -84,130 +89,6 @@ function DetailField({ label, value, wide = false }) {
         {missing ? '—' : value}
       </div>
     </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// RepairModal
-// ---------------------------------------------------------------------------
-
-function RepairModal({ open, editing, deviceId, initialPageCounter, onClose, onSaved }) {
-  const [form]   = Form.useForm()
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    if (editing) {
-      form.setFieldsValue({
-        date:        dayjs(editing.date),
-        repair_type: editing.repair_type,
-        repair_status: editing.repair_status,
-        description: editing.description,
-        contractor:  editing.contractor,
-        cost:        editing.cost,
-        page_counter: editing.page_counter,
-        notes:       editing.notes,
-      })
-    } else {
-      form.resetFields()
-      form.setFieldsValue({
-        date: dayjs(),
-        repair_status: 'in_progress',
-        page_counter: initialPageCounter ?? undefined,
-      })
-    }
-  }, [open, editing, initialPageCounter, form])
-
-  const handleSave = async () => {
-    const values = await form.validateFields()
-    setSaving(true)
-    try {
-      const payload = { ...values, device_id: deviceId, date: values.date.format('YYYY-MM-DD') }
-      if (editing) {
-        const completing = editing.repair_status !== 'completed' && payload.repair_status === 'completed'
-        const updatePayload = completing
-          ? { ...payload, repair_status: editing.repair_status }
-          : payload
-        await api.put(`/repairs/${editing.id}`, updatePayload)
-        if (completing) {
-          const { data } = await api.post(`/repairs/${editing.id}/complete`)
-          message.success(`Ремонт завершён. Разница счётчика: ${data.page_counter_delta} стр.`)
-        } else {
-          message.success('Ремонт обновлён')
-        }
-      } else {
-        await api.post('/repairs', payload)
-        message.success('Ремонт добавлен')
-      }
-      onSaved()
-    } catch (err) {
-      message.error(apiErrorMessage(err, 'Ошибка сохранения'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Modal
-      title={editing ? 'Редактировать ремонт' : 'Добавить ремонт'}
-      open={open}
-      onOk={handleSave}
-      onCancel={onClose}
-      confirmLoading={saving}
-      okText="Сохранить"
-      cancelText="Отмена"
-      width={580}
-      destroyOnClose
-    >
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item name="date" label="Дата" rules={[{ required: true, message: 'Укажите дату' }]}>
-              <DatePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="repair_type" label="Тип ремонта" rules={[{ required: true, message: 'Выберите тип' }]}>
-              <Select options={REPAIR_TYPE_OPTIONS} placeholder="Выберите тип" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="repair_status" label="Состояние" rules={[{ required: true }]}>
-              <Select options={REPAIR_STATUS_OPTIONS} />
-            </Form.Item>
-          </Col>
-          <Col span={24}>
-            <Form.Item name="description" label="Описание" rules={[{ required: true, message: 'Введите описание' }]}>
-              <Input.TextArea rows={2} />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="contractor" label="Исполнитель">
-              <Input placeholder="ФИО или организация" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="cost" label="Стоимость (₽)">
-              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="0.00" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item
-              name="page_counter"
-              label="Счётчик страниц"
-              extra={!editing && initialPageCounter != null ? 'Получен с принтера при открытии формы' : undefined}
-            >
-              <InputNumber style={{ width: '100%' }} min={0} />
-            </Form.Item>
-          </Col>
-          <Col span={24}>
-            <Form.Item name="notes" label="Примечание">
-              <Input.TextArea rows={2} />
-            </Form.Item>
-          </Col>
-        </Row>
-      </Form>
-    </Modal>
   )
 }
 
@@ -320,7 +201,6 @@ export default function DeviceCardPage() {
 
   const [deviceLoading,      setDeviceLoading]      = useState(true)
   const [counterLoading, setCounterLoading] = useState(false)
-  const [repairCounterLoading, setRepairCounterLoading] = useState(false)
   const [repairsLoading,     setRepairsLoading]     = useState(false)
   const [completingRepairId, setCompletingRepairId] = useState(null)
   const [consumablesLoading, setConsumablesLoading] = useState(false)
@@ -329,7 +209,25 @@ export default function DeviceCardPage() {
   const [consumableModal, setConsumableModal] = useState(false)
   const [editingRepair,     setEditingRepair]     = useState(null)
   const [editingConsumable, setEditingConsumable] = useState(null)
-  const [newRepairCounter, setNewRepairCounter] = useState(null)
+  const [reportRepair, setReportRepair] = useState(null)
+  const [editingDevice, setEditingDevice] = useState(null)
+  const [deviceDictionaries, setDeviceDictionaries] = useState({ branches: [], departments: [], manufacturers: [] })
+  const [openingEditor, setOpeningEditor] = useState(false)
+
+  const openDeviceEditor = async () => {
+    setOpeningEditor(true)
+    try {
+      const [card, branchResponse, departmentResponse, manufacturerResponse] = await Promise.all([
+        api.get(`/devices/${id}`), api.get('/orgs/branches'), api.get('/orgs/departments'), api.get('/manufacturers'),
+      ])
+      setDeviceDictionaries({ branches: branchResponse.data, departments: departmentResponse.data, manufacturers: manufacturerResponse.data })
+      setEditingDevice(card.data)
+    } catch {
+      message.error('Не удалось открыть редактирование устройства')
+    } finally {
+      setOpeningEditor(false)
+    }
+  }
 
   // ---- Loaders ----
 
@@ -391,24 +289,8 @@ export default function DeviceCardPage() {
     }
   }
 
-  const openCreateRepair = async () => {
+  const openCreateRepair = () => {
     setEditingRepair(null)
-    setNewRepairCounter(null)
-
-    if (device.ip_address) {
-      setRepairCounterLoading(true)
-      try {
-        const { data } = await api.post(`/devices/${id}/counter`)
-        setDevice((current) => current?.id === data.id ? data : current)
-        setNewRepairCounter(data.page_counter)
-      } catch (err) {
-        const detail = err.response?.data?.detail || 'Не удалось получить счётчик'
-        message.warning(`${detail} Значение можно указать вручную.`)
-      } finally {
-        setRepairCounterLoading(false)
-      }
-    }
-
     setRepairModal(true)
   }
 
@@ -424,13 +306,30 @@ export default function DeviceCardPage() {
     setCompletingRepairId(repairId)
     try {
       const { data } = await api.post(`/repairs/${repairId}/complete`)
-      message.success(`Ремонт завершён. Разница счётчика: ${data.page_counter_delta} стр.`)
+      const period = data.page_counter_delta == null
+        ? 'Это первый зафиксированный ремонт'
+        : `Напечатано с прошлого ремонта: ${data.page_counter_delta} стр.`
+      message.success(`Ремонт завершён. Счётчик: ${data.completion_page_counter}. ${period}`)
       loadRepairs()
       loadDevice()
     } catch (err) {
       message.error(apiErrorMessage(err, 'Не удалось завершить ремонт'))
     } finally {
       setCompletingRepairId(null)
+    }
+  }
+
+  const downloadRepairInvoice = async (repair) => {
+    try {
+      const response = await api.get(`/repairs/${repair.id}/invoice`, { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = repair.invoice_name || 'invoice.pdf'
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      message.error(apiErrorMessage(error, 'Не удалось скачать счёт'))
     }
   }
 
@@ -468,7 +367,7 @@ export default function DeviceCardPage() {
 
   const repairCols = [
     {
-      title: 'Дата', dataIndex: 'date', key: 'date', width: 110,
+      title: 'Забрали', dataIndex: 'date', key: 'date', width: 110,
       defaultSortOrder: 'descend',
       sorter: (a, b) => a.date.localeCompare(b.date),
       render: fmtDate,
@@ -493,28 +392,23 @@ export default function DeviceCardPage() {
       render: (v) => <Typography.Text strong>{fmt(v)}</Typography.Text>,
     },
     {
-      title: 'Счётчик до', dataIndex: 'page_counter', key: 'page_counter', width: 110,
+      title: 'Счётчик ремонта', dataIndex: 'completion_page_counter', key: 'completion_page_counter', width: 145,
       align: 'right',
       render: (v) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
-      title: 'Счётчик после', dataIndex: 'completion_page_counter', key: 'completion_page_counter', width: 125,
+      title: 'Напечатано за период', dataIndex: 'page_counter_delta', key: 'page_counter_delta', width: 170,
       align: 'right',
       render: (v) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
-      title: 'Разница', dataIndex: 'page_counter_delta', key: 'page_counter_delta', width: 95,
-      align: 'right',
-      render: (v) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
-    },
-    {
-      title: '', key: 'actions', width: 200, align: 'right', fixed: 'right',
+      title: '', key: 'actions', width: 250, align: 'right', fixed: 'right',
       render: (_, r) => (
         <Space size={4}>
           {r.repair_status === 'in_progress' && (
             <Popconfirm
               title="Завершить ремонт?"
-              description="Будет получен текущий счётчик и рассчитана разница."
+              description="Будет получен текущий счётчик и рассчитана печать с предыдущего ремонта."
               okText="Завершить"
               cancelText="Отмена"
               onConfirm={() => handleCompleteRepair(r.id)}
@@ -528,6 +422,20 @@ export default function DeviceCardPage() {
                 Завершить
               </Button>
             </Popconfirm>
+          )}
+          <Button
+            icon={<FileTextOutlined />}
+            size="small"
+            title="Сформировать отчёт"
+            onClick={() => setReportRepair(r)}
+          />
+          {r.invoice_name && (
+            <Button
+              icon={<FilePdfOutlined />}
+              size="small"
+              title="Скачать счёт"
+              onClick={() => downloadRepairInvoice(r)}
+            />
           )}
           <Button icon={<EditOutlined />} size="small"
             onClick={() => { setEditingRepair(r); setRepairModal(true) }} />
@@ -620,9 +528,7 @@ export default function DeviceCardPage() {
                 />
               </Col>
             </Row>
-            <Button type="primary" icon={<PlusOutlined />}
-              loading={repairCounterLoading}
-              onClick={openCreateRepair}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateRepair}>
               Добавить ремонт
             </Button>
           </div>
@@ -693,16 +599,22 @@ export default function DeviceCardPage() {
                 {statusCfg.label}
               </span>
               <span>
-                <span className="inventory-summary-label">Инв. №</span> {device.inventory_number}
+                <span className="inventory-summary-label">Инв. №</span> {device.inventory_number || '—'}
               </span>
               <span>
                 <span className="inventory-summary-label">Счётчик</span> {device.page_counter ?? '—'}
               </span>
             </div>
           </div>
-          <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>
-            Распечатать штрихкод
-          </Button>
+          <Space wrap>
+            <Button icon={<EditOutlined />} loading={openingEditor} onClick={openDeviceEditor}>Редактировать</Button>
+            <Button icon={<HistoryOutlined />} onClick={() => navigate(`/history?entity_type=device&entity_id=${device.id}`)}>
+              История движений
+            </Button>
+            <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>
+              Распечатать штрихкод
+            </Button>
+          </Space>
         </header>
 
         <div className="inventory-detail-divider" />
@@ -779,13 +691,23 @@ export default function DeviceCardPage() {
       </section>
 
       {/* Modals */}
-      <RepairModal
+      <DeviceModal
+        open={Boolean(editingDevice)} editing={editingDevice} {...deviceDictionaries}
+        onManufacturerAdded={(manufacturer) => setDeviceDictionaries((previous) => ({ ...previous, manufacturers: [...previous.manufacturers, manufacturer] }))}
+        onClose={() => setEditingDevice(null)} onSaved={() => { setEditingDevice(null); loadDevice() }}
+      />
+      <RepairEditorModal
         open={repairModal}
         editing={editingRepair}
-        deviceId={Number(id)}
-        initialPageCounter={newRepairCounter}
+        device={device}
         onClose={() => setRepairModal(false)}
         onSaved={() => { setRepairModal(false); loadRepairs(); loadDevice() }}
+      />
+      <RepairReportModal
+        open={Boolean(reportRepair)}
+        repair={reportRepair}
+        device={device}
+        onClose={() => setReportRepair(null)}
       />
       <ConsumableModal
         open={consumableModal}

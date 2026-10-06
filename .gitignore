@@ -76,3 +76,7 @@ Thumbs.db
 *.bak
 *.backup
 *~
+
+# Local OCS/AD collector configuration and reports
+tools/ocs_ad/config.json
+tools/ocs_ad/output/
