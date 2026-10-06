@@ -8,8 +8,10 @@ from zipfile import BadZipFile, ZipFile
 from xml.etree.ElementTree import ParseError
 
 from openpyxl import load_workbook
+from openpyxl.cell.read_only import ReadOnlyCell
 from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.utils.datetime import from_excel
+from openpyxl.worksheet._reader import WorkSheetParser
 from pydantic import ValidationError
 from sqlalchemy import text
 
@@ -52,6 +54,27 @@ IDENTIFIERS = {'inn', 'snils', 'serial_number', 'fingerprint', 'power_number', '
 def header(value):
     normalized = ' '.join(str(value or '').replace('\ufeff', '').split()).strip().casefold()
     return 'действителен с' if normalized == 'действителен c' else normalized
+
+
+def nonempty_rows(sheet):
+    """Read physical rows, ignoring unreliable dimensions and empty formatting.
+
+    Use the streaming cell parser from the pinned openpyxl version. iter_rows()
+    trusts dimension metadata and generates every missing row up to sparse cells;
+    a styled cell at XFD1048576 must not create a million rows to validate.
+    """
+    with sheet._get_source() as source:
+        parser = WorkSheetParser(source, sheet._shared_strings,
+                                 data_only=False, epoch=sheet.parent.epoch,
+                                 date_formats=sheet.parent._date_formats)
+        for row_number, cells in parser.parse():
+            populated = {
+                cell['column']: ReadOnlyCell(sheet, **cell) for cell in cells
+                if cell['value'] is not None
+                and not (isinstance(cell['value'], str) and not cell['value'].strip())
+            }
+            if populated:
+                yield row_number, populated
 
 
 def excel_date(value, epoch):
@@ -124,22 +147,24 @@ def parse_workbook(contents):
             if len(matches) != 1:
                 raise ValueError(f'В файле должен быть один лист «{sheet_name}»')
             sheet = matches[0]
-            if sheet.max_row is None or sheet.max_column is None or sheet.max_column > 256:
-                raise ValueError(f'Лист «{sheet_name}»: недопустимые размеры таблицы')
-            if sheet.max_row > MAX_ROWS + 20:
-                raise ValueError(f'Лист «{sheet_name}»: максимум {MAX_ROWS} строк данных; удалите лишние пустые строки')
             labels = dict(FIELDS[kind])
             names = {header(label): key for key, label in FIELDS[kind]}
             required = {key for key, field in schema.model_fields.items() if field.is_required()}
             columns, header_row = {}, None
             # Allow a title above the table; identify its header by all required columns.
-            for row_number, cells in enumerate(sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 20)), 1):
-                recognized = [(column, names[header(cell.value)]) for column, cell in enumerate(cells, 1) if header(cell.value) in names]
-                if required.issubset({key for _, key in recognized}):
-                    if len(recognized) != len({key for _, key in recognized}):
-                        raise ValueError(f'Лист «{sheet_name}»: заголовки столбцов повторяются')
-                    columns, header_row = dict(recognized), row_number
-                    break
+            header_rows = nonempty_rows(sheet)
+            try:
+                for row_number, cells in header_rows:
+                    if row_number > 20:
+                        break
+                    recognized = [(column, names[header(cell.value)]) for column, cell in cells.items() if header(cell.value) in names]
+                    if required.issubset({key for _, key in recognized}):
+                        if len(recognized) != len({key for _, key in recognized}):
+                            raise ValueError(f'Лист «{sheet_name}»: заголовки столбцов повторяются')
+                        columns, header_row = dict(recognized), row_number
+                        break
+            finally:
+                header_rows.close()
             if header_row is None:
                 needed = ', '.join(labels[key] for key in labels if key in required)
                 raise ValueError(f'Лист «{sheet_name}»: не найдены заголовки в первых 20 строках. Обязательные столбцы: {needed}')
@@ -147,12 +172,14 @@ def parse_workbook(contents):
             if missing:
                 warnings.append(f'{sheet_name}: нет необязательных столбцов ({", ".join(missing)}), значения будут пустыми')
             count = 0
-            for row_number, cells in enumerate(sheet.iter_rows(min_row=header_row + 1), header_row + 1):
-                selected = [(columns[column], cell) for column, cell in enumerate(cells, 1) if column in columns]
-                if all(cell.value is None or isinstance(cell.value, str) and not cell.value.strip() for _, cell in selected):
+            for row_number, cells in nonempty_rows(sheet):
+                if row_number <= header_row:
+                    continue
+                selected = [(columns[column], cell) for column, cell in cells.items() if column in columns]
+                if not selected:
                     continue
                 count += 1
-                if count > MAX_ROWS or row_number > MAX_ROWS + header_row:
+                if count > MAX_ROWS:
                     raise ValueError(f'Лист «{sheet_name}»: максимум {MAX_ROWS} строк данных')
                 entry = {'kind': kind, 'sheet': sheet_name, 'row': row_number, 'status': 'new', 'message': '', 'data': None}
                 values, errors = {}, []

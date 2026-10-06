@@ -1,9 +1,11 @@
 import unittest
+import re
 from datetime import datetime
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from openpyxl import Workbook
+from openpyxl.styles import Font
 from sqlalchemy.exc import IntegrityError
 from unittest.mock import patch
 
@@ -33,6 +35,16 @@ class DigitalDocumentImportTests(unittest.TestCase):
         buffer = BytesIO()
         book.save(buffer)
         book.close()
+        return buffer.getvalue()
+
+    def rewrite_sheets(self, contents, rewrite):
+        buffer = BytesIO()
+        with ZipFile(BytesIO(contents)) as source, ZipFile(buffer, 'w', ZIP_DEFLATED) as target:
+            for name in source.namelist():
+                data = source.read(name)
+                if name.startswith('xl/worksheets/sheet') and name.endswith('.xml'):
+                    data = rewrite(data)
+                target.writestr(name, data)
         return buffer.getvalue()
 
     def upload(self, contents, apply=False, filename='registers.xlsx'):
@@ -204,7 +216,7 @@ class DigitalDocumentImportTests(unittest.TestCase):
         self.app.dependency_overrides.pop(get_current_user)
         self.assertEqual(self.upload(self.workbook(), apply=True).status_code, 401)
 
-    def test_corrupted_sheet_xml_and_sparse_oversized_table_return_clear_errors(self):
+    def test_corrupted_sheet_xml_and_too_many_records_return_clear_errors(self):
         buffer = BytesIO()
         with ZipFile(BytesIO(self.workbook())) as source, ZipFile(buffer, 'w', ZIP_DEFLATED) as target:
             for name in source.namelist():
@@ -212,12 +224,59 @@ class DigitalDocumentImportTests(unittest.TestCase):
                 if name == 'xl/worksheets/sheet1.xml':
                     contents = contents.replace(b'</worksheet>', b'</invalid>')
                 target.writestr(name, contents)
-        oversized = self.workbook(change=lambda book: setattr(book['ЭЦП']['A10021'], 'value', 'Too many rows'))
-        for contents in [buffer.getvalue(), oversized]:
-            response = self.upload(contents, apply=True)
-            self.assertEqual(response.status_code, 422, response.text)
-            self.assertIsInstance(response.json()['detail'], str)
-            self.assert_empty()
+        response = self.upload(buffer.getvalue(), apply=True)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIsInstance(response.json()['detail'], str)
+        self.assert_empty()
+        with patch('digital_document_import.MAX_ROWS', 1):
+            response = self.upload(self.workbook(signatures=[SIGNATURE, SIGNATURE]), apply=True)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn('максимум 1 строк', response.json()['detail'])
+        self.assert_empty()
+
+    def test_missing_underreported_and_inflated_dimensions_preserve_all_records(self):
+        workbook = self.workbook()
+        for dimension in [b'', b'<dimension ref="A1:A1"/>', b'<dimension ref="A1:XFD1048576"/>']:
+            with self.subTest(dimension=dimension):
+                contents = self.rewrite_sheets(workbook, lambda data: re.sub(rb'<dimension\b[^>]*/>', dimension, data))
+                response = self.upload(contents)
+                self.assertEqual(response.status_code, 200, response.text)
+                report = response.json()
+                self.assertTrue(report['can_apply'])
+                self.assertEqual(report['totals']['new'], 2)
+                self.assertEqual(report['rows'][0]['data']['serial_number'], '00000123')
+                self.assertEqual(report['rows'][1]['data']['power_number'], '000045')
+                self.assert_empty()
+
+    def test_formatting_at_last_excel_cell_does_not_expand_table_or_block_apply(self):
+        def change(book):
+            for sheet in book:
+                sheet['XFD1048576'].font = Font(bold=True)
+                sheet['AAA1'].font = Font(italic=True)
+        response = self.upload(self.workbook(change=change), apply=True)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()['applied'])
+        self.assertEqual(response.json()['totals']['new'], 2)
+        self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 1)
+        self.assertEqual(len(self.client.get(self.endpoint('powers-of-attorney')).json()), 1)
+
+    def test_wide_table_and_sparse_real_records_preserve_coordinates_and_validation(self):
+        def change(book):
+            sheet = book['ЭЦП']
+            book.remove(sheet)
+            sheet = book.create_sheet('ЭЦП')
+            for column, (key, label) in enumerate(FIELDS['ecp'], 300):
+                sheet.cell(2, column, label)
+                sheet.cell(10021, column, SIGNATURE[key])
+                sheet.cell(1048576, column, SIGNATURE[key] if key != 'full_name' else None)
+        report = self.upload(self.workbook(change=change), apply=True).json()
+        self.assertFalse(report['applied'])
+        self.assertEqual(report['totals']['new'], 2)
+        self.assertEqual(report['totals']['error'], 1)
+        self.assertEqual(report['rows'][0]['row'], 10021)
+        self.assertEqual(report['rows'][1]['row'], 1048576)
+        self.assertIn('ФИО', report['rows'][1]['message'])
+        self.assert_empty()
 
     def test_conflicting_identifiers_pointing_to_multiple_records_are_not_merged(self):
         first = self.create('signatures', SIGNATURE)
