@@ -9,6 +9,54 @@ from sqlalchemy.orm import relationship, validates
 from database import Base
 
 
+class DigitalDocumentMetadata:
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    is_archived = Column(Boolean, nullable=False, default=False, index=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class ElectronicSignature(DigitalDocumentMetadata, Base):
+    __tablename__ = "electronic_signatures"
+
+    company_name = Column(String(500), nullable=False, index=True)
+    inn = Column(String(32))
+    certificate_type = Column(String(255))
+    signature_kind = Column(String(255))
+    full_name = Column(String(255), nullable=False, index=True)
+    position = Column(String(255))
+    snils = Column(String(32))
+    email = Column(String(255))
+    application = Column(Text)
+    valid_from = Column(Date, nullable=False)
+    valid_to = Column(Date, nullable=False, index=True)
+    ep_state = Column(String(255))
+    revoked_at = Column(DateTime(timezone=True))
+    fingerprint = Column(String(512))
+    serial_number = Column(String(255))
+
+
+class MachineReadablePowerOfAttorney(DigitalDocumentMetadata, Base):
+    __tablename__ = "machine_readable_powers_of_attorney"
+
+    power_number = Column(String(255), nullable=False, index=True)
+    valid_from = Column(Date, nullable=False)
+    valid_to = Column(Date, nullable=False, index=True)
+    grantor_inn = Column(String(32))
+    grantor_name = Column(String(500), nullable=False, index=True)
+    grantor_person_full_name = Column(String(255))
+    grantor_person_inn = Column(String(32))
+    grantor_person_snils = Column(String(32))
+    representative_full_name = Column(String(255), nullable=False, index=True)
+    representative_inn = Column(String(32))
+    representative_snils = Column(String(32))
+    permissions = Column(Text)
+    fns_identifier = Column(String(255))
+    edo_identifier = Column(String(255))
+    edo_status = Column(String(255))
+
+
 class DeviceType(str, enum.Enum):
     printer = "printer"
     mfc = "mfc"
