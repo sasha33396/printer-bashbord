@@ -77,6 +77,18 @@ class ManualInventoryApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/inventory/lookup/1-00001").json()["entity_type"], "device")
         self.assertEqual(self.client.get("/api/devices").status_code, 200)
 
+    def test_large_photos_upload_and_round_trip_for_equipment_and_devices(self):
+        payload = PNG + b'\x00' * (2 * 1024 * 1024)
+        item = self.create_item()
+        device = self.create_device()
+        for path in (f"/api/warehouse/items/{item['id']}", f"/api/devices/{device['id']}"):
+            with self.subTest(path=path):
+                response = self.client.post(path + '/photos', files={'files': ('rack.png', payload, 'image/png')})
+                self.assertEqual(response.status_code, 201, response.text)
+                self.assertEqual(response.json()[0]['size'], len(payload))
+                filename = response.json()[0]['filename']
+                self.assertEqual(self.client.get(path + '/photos/' + filename).content, payload)
+
     def test_excel_import_leaves_missing_physical_number_empty(self):
         import io
         import openpyxl

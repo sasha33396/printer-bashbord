@@ -2,11 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Empty, Image, Popconfirm, Spin, message } from 'antd'
 import { CameraOutlined, DeleteOutlined, SnippetsOutlined } from '@ant-design/icons'
 import api from '../api/api'
-
-const errorMessage = (error, fallback) => {
-  const detail = error.response?.data?.detail
-  return typeof detail === 'string' ? detail : fallback
-}
+import { photoErrorMessage } from '../utils/photoErrors'
 
 export default function EquipmentPhotos({ itemId, resourcePath }) {
   const inputRef = useRef(null)
@@ -45,7 +41,7 @@ export default function EquipmentPhotos({ itemId, resourcePath }) {
       setPhotos(hydrated)
     } catch (error) {
       if (request === requestRef.current) {
-        message.error(errorMessage(error, 'Не удалось загрузить фотографии'))
+        message.error(photoErrorMessage(error, 'Не удалось загрузить фотографии'))
       }
     } finally {
       if (request === requestRef.current) setLoading(false)
@@ -87,7 +83,7 @@ export default function EquipmentPhotos({ itemId, resourcePath }) {
       message.success(files.length === 1 ? 'Фотография добавлена' : 'Фотографии добавлены')
       await load()
     } catch (error) {
-      message.error(errorMessage(error, 'Не удалось добавить фотографии'))
+      message.error(photoErrorMessage(error, 'Не удалось добавить фотографии'))
     } finally {
       uploadRef.current = false
       setUploading(false)
@@ -120,7 +116,7 @@ export default function EquipmentPhotos({ itemId, resourcePath }) {
       message.success('Фотография удалена')
       await load()
     } catch (error) {
-      message.error(errorMessage(error, 'Не удалось удалить фотографию'))
+      message.error(photoErrorMessage(error, 'Не удалось удалить фотографию'))
     } finally {
       setDeleting(null)
     }
