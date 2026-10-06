@@ -4,7 +4,7 @@ from datetime import datetime
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from sqlalchemy.exc import IntegrityError
 from unittest.mock import patch
@@ -59,11 +59,14 @@ class DigitalDocumentImportTests(unittest.TestCase):
         file = self.workbook()
         preview = self.upload(file)
         self.assertEqual(preview.status_code, 200, preview.text)
-        self.assertEqual(preview.json()['totals'], {'new': 2, 'unchanged': 0, 'error': 0, 'conflict': 0})
+        self.assertEqual(preview.json()['totals'], {'new': 2, 'created': 0, 'unchanged': 0, 'error': 0, 'conflict': 0})
         self.assertFalse(preview.json()['applied'])
         self.assert_empty()
         report = self.upload(file, apply=True).json()
         self.assertTrue(report['applied'])
+        self.assertEqual(report['totals']['created'], 2)
+        self.assertEqual(report['totals']['new'], 0)
+        self.assertTrue(all(row['status'] == 'created' and row['existing_id'] for row in report['rows']))
         signature = self.client.get(self.endpoint('signatures')).json()[0]
         power = self.client.get(self.endpoint('powers-of-attorney')).json()[0]
         for key, value in SIGNATURE.items():
@@ -71,7 +74,7 @@ class DigitalDocumentImportTests(unittest.TestCase):
         for key, value in POWER.items():
             self.assertEqual(power[key], value)
         retried = self.upload(file, apply=True).json()
-        self.assertTrue(retried['applied'])
+        self.assertFalse(retried['applied'])
         self.assertEqual(retried['totals']['new'], 0)
         self.assertEqual(retried['totals']['unchanged'], 2)
         self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 1)
@@ -87,7 +90,7 @@ class DigitalDocumentImportTests(unittest.TestCase):
             sheet.append([None, None, None, None, None])
         report = self.upload(self.workbook(powers=[], change=change), apply=True).json()
         self.assertTrue(report['applied'])
-        self.assertEqual(report['totals']['new'], 1)
+        self.assertEqual(report['totals']['created'], 1)
         self.assertEqual(report['rows'][0]['row'], 3)
         self.assertTrue(report['warnings'])
         record = self.client.get(self.endpoint('signatures')).json()[0]
@@ -112,23 +115,28 @@ class DigitalDocumentImportTests(unittest.TestCase):
         self.assertEqual(record['valid_to'], '2027-01-01')
         self.assertEqual(record['revoked_at'], '2026-10-06T10:30:15Z')
 
-    def test_error_in_second_sheet_blocks_whole_file_with_sheet_and_row(self):
+    def test_error_in_second_sheet_does_not_block_correct_first_sheet(self):
         file = self.workbook(powers=[{**POWER, 'valid_to': '2025-01-01'}])
         for apply in [False, True]:
             report = self.upload(file, apply=apply).json()
-            self.assertFalse(report['can_apply'])
-            self.assertFalse(report['applied'])
+            self.assertTrue(report['can_apply'])
+            self.assertEqual(report['applied'], apply)
             self.assertEqual(report['totals']['error'], 1)
             issue = report['rows'][1]
             self.assertEqual((issue['sheet'], issue['row']), ('МЧД', 2))
             self.assertIn('Дата окончания', issue['message'])
-            self.assert_empty()
+            if apply:
+                self.assertEqual(report['totals']['created'], 1)
+                self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 1)
+                self.assertEqual(self.client.get(self.endpoint('powers-of-attorney')).json(), [])
+            else:
+                self.assert_empty()
 
     def test_invalid_values_formulas_long_numeric_identifiers_and_blank_required_cells(self):
         for field, value in [('fingerprint', 12345678901234567890), ('inn', 123.5), ('email', 'broken'),
                              ('full_name', None), ('valid_from', '=TODAY()'), ('valid_to', 'not a date')]:
             with self.subTest(field=field):
-                report = self.upload(self.workbook(signatures=[{**SIGNATURE, field: value}]), apply=True).json()
+                report = self.upload(self.workbook(signatures=[{**SIGNATURE, field: value}], powers=[]), apply=True).json()
                 self.assertFalse(report['can_apply'], report)
                 self.assertEqual(report['totals']['error'], 1)
                 self.assertIn(dict(FIELDS['ecp'])[field], report['rows'][0]['message'])
@@ -137,26 +145,28 @@ class DigitalDocumentImportTests(unittest.TestCase):
     def test_duplicate_rows_in_file_are_added_once(self):
         report = self.upload(self.workbook(signatures=[SIGNATURE, SIGNATURE], powers=[POWER, POWER]), apply=True).json()
         self.assertTrue(report['applied'])
-        self.assertEqual(report['totals']['new'], 2)
+        self.assertEqual(report['totals']['created'], 2)
         self.assertEqual(report['totals']['unchanged'], 2)
         self.assertIn('Повтор строки 2', report['rows'][1]['message'])
 
-    def test_same_identity_different_data_blocks_without_overwriting(self):
+    def test_same_identity_different_data_is_skipped_while_other_sheet_imports(self):
         record = self.create('signatures', SIGNATURE)
         changed = {**SIGNATURE, 'position': 'Новая должность'}
         file = self.workbook(signatures=[changed])
         report = self.upload(file, apply=True).json()
-        self.assertFalse(report['applied'])
+        self.assertTrue(report['applied'])
         self.assertEqual(report['totals']['conflict'], 1)
         self.assertEqual(report['rows'][0]['existing_id'], record['id'])
         self.assertEqual(self.client.get(self.endpoint('signatures')).json(), [record])
-        self.assertEqual(self.client.get(self.endpoint('powers-of-attorney')).json(), [])
+        self.assertEqual(len(self.client.get(self.endpoint('powers-of-attorney')).json()), 1)
 
-    def test_conflicting_duplicate_inside_file_blocks_everything(self):
+    def test_conflicting_duplicates_inside_file_are_both_withheld(self):
         report = self.upload(self.workbook(signatures=[SIGNATURE, {**SIGNATURE, 'full_name': 'Другой владелец'}]), apply=True).json()
-        self.assertFalse(report['applied'])
-        self.assertEqual(report['totals']['conflict'], 1)
-        self.assert_empty()
+        self.assertTrue(report['applied'])
+        self.assertEqual(report['totals']['conflict'], 2)
+        self.assertEqual(report['totals']['created'], 1)
+        self.assertEqual(self.client.get(self.endpoint('signatures')).json(), [])
+        self.assertEqual(len(self.client.get(self.endpoint('powers-of-attorney')).json()), 1)
 
     def test_archived_records_are_skipped_without_restoring(self):
         record = self.create('signatures', SIGNATURE)
@@ -173,16 +183,18 @@ class DigitalDocumentImportTests(unittest.TestCase):
                   'fns_identifier': 'other-fns', 'edo_identifier': 'other-edo'}
         report = self.upload(self.workbook(signatures=[], powers=[POWER, second]), apply=True).json()
         self.assertTrue(report['applied'], report)
-        self.assertEqual(report['totals']['new'], 2)
+        self.assertEqual(report['totals']['created'], 2)
 
     def test_apply_rechecks_database_after_preview(self):
         file = self.workbook()
         self.assertEqual(self.upload(file).json()['totals']['new'], 2)
         self.create('powers-of-attorney', {**POWER, 'permissions': 'Изменено вручную'})
         applied = self.upload(file, apply=True).json()
-        self.assertFalse(applied['applied'])
+        self.assertTrue(applied['applied'])
         self.assertEqual(applied['totals']['conflict'], 1)
-        self.assertEqual(self.client.get(self.endpoint('signatures')).json(), [])
+        self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 1)
+        self.assertEqual(applied['totals']['created'], 1)
+        self.assertEqual(self.client.get(self.endpoint('powers-of-attorney')).json()[0]['permissions'], 'Изменено вручную')
 
     def test_insert_failure_rolls_back_first_sheet(self):
         original_flush = self.sessions.class_.flush
@@ -256,7 +268,7 @@ class DigitalDocumentImportTests(unittest.TestCase):
         response = self.upload(self.workbook(change=change), apply=True)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertTrue(response.json()['applied'])
-        self.assertEqual(response.json()['totals']['new'], 2)
+        self.assertEqual(response.json()['totals']['created'], 2)
         self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 1)
         self.assertEqual(len(self.client.get(self.endpoint('powers-of-attorney')).json()), 1)
 
@@ -270,18 +282,92 @@ class DigitalDocumentImportTests(unittest.TestCase):
                 sheet.cell(10021, column, SIGNATURE[key])
                 sheet.cell(1048576, column, SIGNATURE[key] if key != 'full_name' else None)
         report = self.upload(self.workbook(change=change), apply=True).json()
-        self.assertFalse(report['applied'])
-        self.assertEqual(report['totals']['new'], 2)
+        self.assertTrue(report['applied'])
+        self.assertEqual(report['totals']['created'], 2)
         self.assertEqual(report['totals']['error'], 1)
         self.assertEqual(report['rows'][0]['row'], 10021)
         self.assertEqual(report['rows'][1]['row'], 1048576)
         self.assertIn('ФИО', report['rows'][1]['message'])
-        self.assert_empty()
+        self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 1)
+        self.assertEqual(len(self.client.get(self.endpoint('powers-of-attorney')).json()), 1)
 
     def test_conflicting_identifiers_pointing_to_multiple_records_are_not_merged(self):
         first = self.create('signatures', SIGNATURE)
         second = self.create('signatures', {**SIGNATURE, 'fingerprint': 'other', 'serial_number': 'other'})
         report = self.upload(self.workbook(signatures=[{**SIGNATURE, 'serial_number': 'other'}]), apply=True).json()
-        self.assertFalse(report['applied'])
+        self.assertTrue(report['applied'])
         self.assertEqual(report['totals']['conflict'], 1)
         self.assertEqual(self.client.get(self.endpoint('signatures')).json(), [first, second])
+
+    def test_mixed_import_report_and_corrected_file_only_add_missing_records(self):
+        existing = self.create('signatures', SIGNATURE)
+        valid = {**SIGNATURE, 'fingerprint': 'valid-new', 'serial_number': '00000999', 'full_name': 'Новый сотрудник'}
+        invalid = {**SIGNATURE, 'fingerprint': 'needs-fix', 'serial_number': '00000888', 'email': 'broken'}
+        conflict = {**SIGNATURE, 'position': 'Расхождение'}
+        power_invalid = {**POWER, 'fns_identifier': 'new-fns', 'edo_identifier': 'new-edo',
+                         'power_number': '000055', 'valid_to': '2025-01-01'}
+        file = self.workbook(signatures=[SIGNATURE, valid, invalid, conflict], powers=[POWER, power_invalid])
+        preview = self.upload(file).json()
+        self.assertTrue(preview['can_apply'])
+        self.assertEqual(preview['totals']['new'], 2)
+        report = self.upload(file, apply=True).json()
+        self.assertTrue(report['applied'])
+        self.assertEqual(report['totals']['created'], 2)
+        self.assertEqual(report['totals']['error'], 2)
+        self.assertEqual(self.client.get(self.endpoint('signatures') + f"/{existing['id']}").json(), existing)
+        retried = self.upload(file, apply=True).json()
+        self.assertFalse(retried['applied'])
+        self.assertFalse(retried['can_apply'])
+        self.assertEqual(retried['totals']['unchanged'], 2)
+        corrected = self.workbook(signatures=[valid, {**invalid, 'email': 'fixed@example.com'}],
+                                  powers=[POWER, {**power_invalid, 'valid_to': '2027-01-01'}])
+        corrected_report = self.upload(corrected, apply=True).json()
+        self.assertEqual(corrected_report['totals']['created'], 2)
+        self.assertEqual(corrected_report['totals']['unchanged'], 2)
+        self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 3)
+        self.assertEqual(len(self.client.get(self.endpoint('powers-of-attorney')).json()), 2)
+        response = self.client.post('/api/digital-documents/import-report-xlsx', json={**report, 'source_filename': 'Исходник.xlsx'})
+        self.assertEqual(response.status_code, 200, response.text[:100])
+        workbook = load_workbook(BytesIO(response.content))
+        self.addCleanup(workbook.close)
+        self.assertEqual(workbook.sheetnames, ['Итоги', 'ЭЦП', 'МЧД'])
+        sheet = workbook['ЭЦП']
+        headers = {cell.value: cell.column for cell in sheet[1]}
+        self.assertEqual(sheet.cell(3, headers['Серийный номер']).value, '00000999')
+        self.assertEqual(sheet.cell(4, headers['Email']).value, 'broken')
+        self.assertEqual(sheet.cell(4, headers['Строка исходного Excel']).value, 4)
+        self.assertIn('Email', sheet.cell(4, headers['Причина / пояснение']).value)
+        self.assertEqual(sheet.cell(3, headers['Результат']).value, 'Добавлено')
+        self.assertEqual(sheet.cell(5, headers['Результат']).value, 'Нужно сверить')
+        self.assertEqual(workbook['Итоги']['B1'].value, 'Исходник.xlsx')
+        self.assertEqual(len(self.client.get(self.endpoint('signatures')).json()), 3)
+
+    def test_report_formulas_remain_text_and_export_requires_authentication(self):
+        report = self.upload(self.workbook(signatures=[{**SIGNATURE, 'valid_from': '=TODAY()'}], powers=[])).json()
+        response = self.client.post('/api/digital-documents/import-report-xlsx', json=report)
+        self.assertEqual(response.status_code, 200, response.text[:100])
+        workbook = load_workbook(BytesIO(response.content), data_only=False)
+        self.addCleanup(workbook.close)
+        sheet = workbook['ЭЦП']
+        header_map = {cell.value: cell.column for cell in sheet[1]}
+        cell = sheet.cell(2, header_map['Действителен с'])
+        self.assertEqual(cell.value, '=TODAY()')
+        self.assertEqual(cell.data_type, 's')
+        self.assert_empty()
+        from routers.auth import get_current_user
+        self.app.dependency_overrides.pop(get_current_user)
+        self.assertEqual(self.client.post('/api/digital-documents/import-report-xlsx', json=report).status_code, 401)
+
+    def test_error_report_keeps_displayed_numeric_identifier_zeroes(self):
+        def change(book):
+            book['ЭЦП']['B2'] = 12345678
+            book['ЭЦП']['B2'].number_format = '0000000000'
+        report = self.upload(self.workbook(signatures=[{**SIGNATURE, 'email': 'broken'}], powers=[], change=change)).json()
+        self.assertEqual(report['rows'][0]['source_data']['inn'], '0012345678')
+        response = self.client.post('/api/digital-documents/import-report-xlsx', json=report)
+        self.assertEqual(response.status_code, 200, response.text[:100])
+        workbook = load_workbook(BytesIO(response.content))
+        self.addCleanup(workbook.close)
+        sheet = workbook['ЭЦП']
+        columns = {cell.value: cell.column for cell in sheet[1]}
+        self.assertEqual(sheet.cell(2, columns['ИНН']).value, '0012345678')

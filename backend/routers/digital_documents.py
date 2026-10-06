@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from database import get_db
 from digital_document_import import MAX_FILE_BYTES, import_documents
+from digital_document_import_report import ImportReportExport, report_workbook
 from digital_document_schemas import (
     PowerOfAttorneyCreate, PowerOfAttorneyRead, PowerOfAttorneyUpdate,
     SignatureCreate, SignatureRead, SignatureUpdate,
@@ -115,6 +117,13 @@ def import_xlsx(apply: bool = False, file: UploadFile = File(...), db: Session =
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/import-report-xlsx")
+def download_import_report(payload: ImportReportExport):
+    return Response(report_workbook(payload),
+                    media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': 'attachment; filename="ecp-mchd-import-report.xlsx"'})
 
 
 @router.get("/signatures", response_model=list[SignatureRead])

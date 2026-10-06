@@ -181,11 +181,18 @@ def parse_workbook(contents):
                 count += 1
                 if count > MAX_ROWS:
                     raise ValueError(f'Лист «{sheet_name}»: максимум {MAX_ROWS} строк данных')
-                entry = {'kind': kind, 'sheet': sheet_name, 'row': row_number, 'status': 'new', 'message': '', 'data': None}
+                entry = {'kind': kind, 'sheet': sheet_name, 'row': row_number, 'status': 'new',
+                         'message': '', 'data': None, 'source_data': {}}
                 values, errors = {}, []
                 for key, cell in selected:
+                    raw = cell.value
+                    entry['source_data'][key] = raw.isoformat() if isinstance(raw, (date, datetime)) else str(raw)
                     try:
-                        values[key] = cell_value(cell, key, workbook.epoch)
+                        value = cell_value(cell, key, workbook.epoch)
+                        values[key] = value
+                        # Keep successfully read identifiers (including zero masks)
+                        # even when a different field invalidates this row.
+                        entry['source_data'][key] = value.isoformat() if isinstance(value, (date, datetime)) else value
                     except (ValueError, OverflowError) as exc:
                         errors.append(f'{labels[key]}: {exc}')
                 if not errors:
@@ -238,6 +245,15 @@ def canonical(data):
     return tuple(sorted(data.items()))
 
 
+def identity_summary(tokens, existing):
+    """Bound conflict messages and avoid scanning a duplicate group per row."""
+    first = canonical(existing[next(iter(tokens))][0])
+    same_data = all(canonical(existing[token][0]) == first for token in tokens)
+    return {'canonical': first if same_data else None,
+            'db': sorted(token for token in tokens if token[0] == 'db')[:2],
+            'file_rows': sorted(token[1] for token in tokens if token[0] == 'file')[:6]}
+
+
 def import_documents(db, contents, apply=False):
     rows, warnings = parse_workbook(contents)
     # Serialize SQLite imports before checking identities; retrying the same file is safe.
@@ -257,52 +273,80 @@ def import_documents(db, contents, apply=False):
             for key in identity_keys(kind, data):
                 by_key[key].add(token)
         indexes[kind] = (by_key, exact, existing)
+    # Index every valid file row first. Different rows sharing an identity must
+    # both be withheld; partial import must not pick whichever appears first.
+    for entry in rows:
+        if entry['status'] == 'error':
+            continue
+        kind, data = entry['kind'], entry['data']
+        by_key, exact, existing = indexes[kind]
+        token = ('file', entry['row'])
+        existing[token] = (data, entry)
+        exact[canonical(data)].add(token)
+        for key in identity_keys(kind, data):
+            by_key[key].add(token)
+    for kind, (by_key, exact, existing) in indexes.items():
+        indexes[kind] = ({key: identity_summary(tokens, existing) for key, tokens in by_key.items()},
+                         {key: identity_summary(tokens, existing) for key, tokens in exact.items()}, existing)
     pending = []
     for entry in rows:
         if entry['status'] == 'error':
             continue
         kind, data = entry['kind'], entry['data']
         by_key, exact, existing = indexes[kind]
-        candidates = set(exact.get(canonical(data), set()))
+        fingerprint = canonical(data)
+        matches = [exact[fingerprint]]
         keys = identity_keys(kind, data)
         for key in keys:
-            candidates.update(by_key.get(key, set()))
-        if candidates:
-            if len(candidates) == 1:
-                token = next(iter(candidates))
-                previous, record = existing[token]
-                if token[0] == 'db':
-                    entry['existing_id'] = record.id
-                if canonical(previous) == canonical(data):
-                    message = 'Уже есть в приложении' if token[0] == 'db' else f'Повтор строки {token[1]} в файле'
-                    if token[0] == 'db' and record.is_archived:
-                        message += ' (в архиве; останется в архиве)'
-                    entry.update(status='unchanged', message=message)
-                    continue
-            entry.update(status='conflict', message='Номер или идентификатор уже встречается с другими данными. Сверьте записи; автоматическая замена отключена')
+            matches.append(by_key[key])
+        db_candidates = list({token for match in matches for token in match['db']})
+        if len(db_candidates) == 1:
+            entry['existing_id'] = db_candidates[0][1]
+        different = any(match['canonical'] != fingerprint for match in matches)
+        if different or len(db_candidates) > 1:
+            file_rows = sorted({number for match in matches for number in match['file_rows'] if number != entry['row']})
+            message = 'Номер или идентификатор уже встречается с другими данными. Сверьте записи; автоматическая замена отключена'
+            if file_rows:
+                message += f'. Связанные строки этого листа: {", ".join(map(str, file_rows[:5]))}'
+                if len(file_rows) > 5:
+                    message += ', …'
+            entry.update(status='conflict', message=message)
             continue
-        token = ('file', entry['row'])
-        existing[token] = (data, None)
-        exact[canonical(data)].add(token)
-        for key in keys:
-            by_key[key].add(token)
+        if db_candidates:
+            record = existing[db_candidates[0]][1]
+            message = 'Уже есть в приложении'
+            if record.is_archived:
+                message += ' (в архиве; останется в архиве)'
+            entry.update(status='unchanged', message=message)
+            continue
+        first_row = min(number for match in matches for number in match['file_rows'])
+        if first_row != entry['row']:
+            entry.update(status='unchanged', message=f'Повтор строки {first_row} в файле')
+            continue
         pending.append(entry)
         if kind == 'ecp' and not keys:
             warnings.append(f'ЭЦП, строка {entry["row"]}: нет отпечатка и серийного номера; повтор определяется только по совпадению всех полей')
-    totals = dict(Counter(entry['status'] for entry in rows))
-    can_apply = not any(entry['status'] in {'error', 'conflict'} for entry in rows)
+    can_apply = bool(pending)
     applied = apply and can_apply
     if applied:
         try:
+            created = []
             for entry in pending:
                 _, model, schema = REGISTERS[entry['kind']]
-                db.add(model(**schema.model_validate(entry['data']).model_dump()))
+                record = model(**schema.model_validate(entry['data']).model_dump())
+                db.add(record)
+                created.append((entry, record))
+            db.flush()
+            identifiers = [record.id for _, record in created]
             db.commit()
+            for (entry, _), identifier in zip(created, identifiers):
+                entry.update(status='created', message='Добавлено в приложение', existing_id=identifier)
         except Exception:
             db.rollback()
             raise
     elif apply:
         db.rollback()
+    totals = dict(Counter(entry['status'] for entry in rows))
     return {'mode': 'apply' if apply else 'preview', 'applied': applied, 'can_apply': can_apply,
-            'totals': {key: totals.get(key, 0) for key in ('new', 'unchanged', 'error', 'conflict')},
+            'totals': {key: totals.get(key, 0) for key in ('new', 'created', 'unchanged', 'error', 'conflict')},
             'rows': rows, 'warnings': warnings}
