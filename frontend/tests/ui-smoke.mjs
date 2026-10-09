@@ -87,6 +87,58 @@ const visit = async (route, text) => { await cmd('Page.navigate', { url: `${base
 const shot = async name => { const { data } = await cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); await writeFile(path.join(root, `${name}.png`), Buffer.from(data, 'base64')) }
 const clickText = text => run(`Array.from(document.querySelectorAll('button')).find(button => button.innerText.trim() === ${JSON.stringify(text)})?.click()`)
 try {
+  const originalOwners = [signature.full_name, power.representative_full_name]
+  signature.full_name = power.representative_full_name = 'АНТОНОВ ВЯЧЕСЛАВ АНАТОЛЬЕВИЧ '.repeat(3).trim()
+  for (const width of [1920, 1440, 1366, 1200]) {
+    await viewport(width, 900)
+    await visit('/', 'Панель управления')
+    for (const kind of ['ecp', 'mchd']) {
+      await run(`document.querySelectorAll('.overview-side .ant-table-row')[${kind === 'ecp' ? 0 : 1}].querySelector('button').click()`)
+      await wait('!!document.querySelector(".record-panel") && !document.querySelector(".ant-spin-spinning")')
+      const bounds = await run(`(() => {
+        const main = document.querySelector('.workspace-main').getBoundingClientRect()
+        const panel = document.querySelector('.record-panel').getBoundingClientRect()
+        return { mainRight: main.right, panelLeft: panel.left,
+          cards: Array.from(document.querySelectorAll('.overview-side > .ant-card')).map(card => ({
+            right: card.getBoundingClientRect().right,
+            scrollRight: card.querySelector('.ant-table-content').getBoundingClientRect().right,
+          })) }
+      })()`)
+      assert.ok(bounds.cards.every(card => card.right <= bounds.mainRight + 1 && card.scrollRight <= card.right + 1), `Overview overflow with ${kind} at ${width}: ${JSON.stringify(bounds)}`)
+      assert.ok(bounds.cards.every(card => card.right < bounds.panelLeft), `Overview overlaps the ${kind} panel at ${width}`)
+      assert.ok(await run(`(() => {
+        const owner = document.querySelector('.overview-side .ant-table-row button > span:not(.anticon)')
+        return getComputedStyle(owner).textOverflow === 'ellipsis' && owner.scrollWidth > owner.clientWidth
+      })()`), `Long owner name is not truncated with ellipsis at ${width}`)
+      assert.ok(await run('document.documentElement.scrollWidth <= innerWidth + 1'), `Overview page overflow at ${width}`)
+      await run('document.querySelector(".overview-side").scrollIntoView({block: "center"})')
+      await shot(`overview-${kind}-panel-${width}`)
+      await run(`document.querySelector('button[aria-label="Закрыть карточку"]').click()`)
+      await wait('!document.querySelector(".record-panel") && !document.querySelector(".ant-spin-spinning")')
+      console.log('PASS overview panel containment', kind, width)
+    }
+  }
+  for (const width of [768, 390]) {
+    await viewport(width, 900)
+    await visit('/', 'Панель управления')
+    for (const kind of ['ecp', 'mchd']) {
+      await run(`document.querySelectorAll('.overview-side .ant-table-row')[${kind === 'ecp' ? 0 : 1}].querySelector('button').click()`)
+      await wait('!!document.querySelector(".ant-drawer-open") && !document.querySelector(".ant-spin-spinning")')
+      assert.ok(await run(`(() => {
+        const main = document.querySelector('.workspace-main').getBoundingClientRect()
+        return Array.from(document.querySelectorAll('.overview-side > .ant-card')).every(card =>
+          card.getBoundingClientRect().right <= main.right + 1
+          && card.querySelector('.ant-table-content').getBoundingClientRect().right <= card.getBoundingClientRect().right + 1)
+      })()`), `Overview overflow with ${kind} drawer at ${width}`)
+      assert.ok(await run('document.documentElement.scrollWidth <= innerWidth + 1'), `Overview page overflow at ${width}`)
+      await shot(`overview-${kind}-drawer-${width}`)
+      await run('document.querySelector(".record-drawer .ant-drawer-close").click()')
+      await wait('!document.querySelector(".ant-drawer-open") && !document.querySelector(".ant-spin-spinning")')
+      console.log('PASS overview drawer containment', kind, width)
+    }
+  }
+  ;[signature.full_name, power.representative_full_name] = originalOwners
+  if (!process.argv.includes('--overview-only')) {
   await viewport(1440, 900)
   const routes = [['/', 'Панель управления'], ['/devices', 'Принтеры'], ['/warehouse', 'Склад'], ['/warehouse/archive', 'Архив'], ['/workplaces', 'Рабочие места'], ['/repairs', 'Ремонты'], ['/analytics', 'Аналитика'], ['/digital-documents/ecp', 'ЭЦП'], ['/digital-documents/mchd', 'МЧД'], ['/history', 'История движений'], ['/settings', 'Настройки'], ['/devices/1', 'ECOSYS Test 1'], ['/warehouse/items/1', 'Lenovo'], ['/workplaces/1', 'RM-001'], ['/digital-documents/ecp/1', 'Тестовая компания'], ['/digital-documents/mchd/1', '00001'], ['/login', 'Войти']]
   for (const [route, text] of routes) { await visit(route, text); await shot(route.replaceAll('/', '-') || 'overview'); console.log('PASS route', route) }
@@ -131,4 +183,5 @@ try {
     assert.ok(await run('document.querySelector(".page-alert").innerText.includes("Повторить")'))
   }
   assert.equal(errors.length, 0, errors.join('\n')); console.log('PASS empty/error states; no runtime errors; all intercepted API requests stay within test fixtures')
+  }
 } finally { await cmd('Browser.close').catch(() => {}); ws.close(); chrome.kill() }

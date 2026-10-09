@@ -905,7 +905,7 @@ body {
 .warehouse-category:hover, .warehouse-category.is-active { border-color: var(--accent); background: var(--accent-soft); }
 
 /* Shared table surface; column filters retain their existing implementation. */
-.workspace-main { min-width: 0; }
+.workspace-main { min-width: 0; container-type: inline-size; container-name: workspace; }
 .data-table { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .ant-card .data-table, .record-detail .data-table { border: 0; }
 .data-table .ant-table-pagination { margin: 12px !important; }
@@ -955,10 +955,13 @@ body {
 .repair-history-link { margin-top: 16px; }
 
 /* Actual-data dashboard and reporting */
-.overview-charts { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 16px; margin-bottom: 16px; align-items: stretch; }
-.overview-details { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; align-items: start; }
+.overview-charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; margin-bottom: 16px; align-items: stretch; }
+.overview-details { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .overview-details > *, .overview-charts > * { min-width: 0; }
-.overview-side { display: grid; gap: 16px; min-width: 0; }
+.overview-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.overview-side > .ant-card { min-width: 0; }
+.overview-side .ant-table-cell .ant-btn-link { max-width: 100%; justify-content: flex-start; overflow: hidden; white-space: nowrap; }
+.overview-side .ant-table-cell .ant-btn-link > span:not(.anticon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .distribution-bars, .distribution-legend { display: grid; gap: 14px; }
 .distribution-label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .distribution-label > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -1004,5 +1007,16 @@ body {
   .record-detail .inventory-detail-grid { grid-template-columns: minmax(0, 1fr); }
   .record-detail .inventory-detail-field-wide, .record-detail .workplace-detail-wide { grid-column: span 1; }
   .ant-modal-body .ant-row > .ant-col { flex: 0 0 100%; max-width: 100%; }
+}
+/* Adapt to the space left beside the record panel, not only the viewport. */
+@container workspace (max-width: 1000px) {
+  .overview-details { grid-template-columns: minmax(0, 1fr); }
+  .overview-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-charts > :last-child { grid-column: 1 / -1; }
+}
+@container workspace (max-width: 600px) {
+  .overview-charts, .overview-side { grid-template-columns: minmax(0, 1fr); }
+  .overview-charts > :last-child { grid-column: auto; }
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; } }

@@ -71,8 +71,8 @@ export default function OverviewPage() {
       </Card>
       <div className="overview-side">
         <Card title="Ближайшее истечение ЭЦП и МЧД" extra={<Link to="/digital-documents/ecp">Реестры →</Link>}>
-          <Table rowKey={(row) => `${row.kind}-${row.id}`} loading={loading} dataSource={upcoming.slice(0, 5)} pagination={false} scroll={{ x: 360 }} locale={{ emptyText: errors.some((key) => ['ecp', 'mchd'].includes(key)) ? 'Часть реестров недоступна' : 'Нет записей с близким сроком окончания' }} columns={[
-            { title: 'Владелец', dataIndex: 'owner', render: (value, row) => <Button type="link" onClick={() => navigate(`/digital-documents/${row.kind}/${row.id}`)}>{value}</Button> },
+          <Table rowKey={(row) => `${row.kind}-${row.id}`} loading={loading} dataSource={upcoming.slice(0, 5)} pagination={false} scroll={{ x: 425 }} locale={{ emptyText: errors.some((key) => ['ecp', 'mchd'].includes(key)) ? 'Часть реестров недоступна' : 'Нет записей с близким сроком окончания' }} columns={[
+            { title: 'Владелец', dataIndex: 'owner', width: 260, ellipsis: true, render: (value, row) => <Button type="link" onClick={() => navigate(`/digital-documents/${row.kind}/${row.id}`)}>{value}</Button> },
             { title: 'Тип', dataIndex: 'kind', width: 55, render: (value) => value === 'ecp' ? 'ЭЦП' : 'МЧД' },
             { title: 'Окончание', dataIndex: 'valid_to', width: 110, render: (value) => <Tag color="orange">{fmtDate(value)}</Tag> },
           ]} />
