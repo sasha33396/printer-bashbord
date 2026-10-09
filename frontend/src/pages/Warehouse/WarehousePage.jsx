@@ -1,15 +1,16 @@
+import { useRecordNavigation, useRecordPanel } from '../../components/RecordPanelContext'
+import PageHeading from '../../components/PageHeading'
 import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber,
-  Modal, Popconfirm, Row, Select, Space, Tag, Typography, Upload, message,
+  Modal, Popconfirm, Row, Select, Space, Tag, Typography, Upload, message, Alert,
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, MinusOutlined,
   BarcodeOutlined, DownloadOutlined, InboxOutlined, PlusOutlined, UndoOutlined, UploadOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import WarehouseItemModal from '../../components/WarehouseItemModal'
@@ -178,20 +179,22 @@ function HistoryModal({ item, open, onClose, onChanged }) {
         columns={columns}
         loading={loading}
         size="small"
-        pagination={{ pageSize: 10, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 10, hideOnSinglePage: true }}
       />
     </Modal>
   )
 }
 
 export default function WarehousePage({ archiveOnly = false }) {
-  const navigate = useNavigate()
+  const navigate = useRecordNavigation()
+  const { revision, selected } = useRecordPanel()
   const [items, setItems] = useState([])
   const [devices, setDevices] = useState([])
   const [repairs, setRepairs] = useState([])
   const [branches, setBranches] = useState([])
   const [departments, setDepartments] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState()
   const [branchId, setBranchId] = useState()
@@ -205,6 +208,7 @@ export default function WarehousePage({ archiveOnly = false }) {
   const [importing, setImporting] = useState(false)
 
   const load = useCallback(async () => {
+    setLoadError(false)
     setLoading(true)
     try {
       const [itemResponse, deviceResponse, repairResponse] = await Promise.all([
@@ -214,13 +218,14 @@ export default function WarehousePage({ archiveOnly = false }) {
       setDevices(deviceResponse.data)
       setRepairs(repairResponse.data)
     } catch (err) {
+      setLoadError(true)
       message.error(apiErrorMessage(err, 'Не удалось загрузить данные склада'))
     } finally {
       setLoading(false)
     }
   }, [archiveMode])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, revision])
   useEffect(() => {
     Promise.all([api.get('/orgs/branches'), api.get('/orgs/departments')])
       .then(([branchResponse, departmentResponse]) => {
@@ -512,10 +517,9 @@ export default function WarehousePage({ archiveOnly = false }) {
 
   return (
     <>
+      {loadError && <Alert className="page-alert" type="error" showIcon message="Не удалось загрузить данные. Проверьте соединение и повторите запрос." action={<Button onClick={() => load()}>Повторить</Button>} />}
+      <PageHeading title={archiveMode ? 'Архив склада' : 'Склад'} description="Расходные материалы и поштучное оборудование. Остатки, характеристики и перемещения" />
       <div className="page-toolbar" style={{ marginBottom: 18 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
-          {archiveMode ? 'Архив оборудования' : 'Оборудование'}
-        </Typography.Title>
         <Input.Search
           placeholder="Инв. №, наименование, IP, MAC"
           allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }}
@@ -531,6 +535,7 @@ export default function WarehousePage({ archiveOnly = false }) {
           style={{ width: 190 }}
         />
         <div className="toolbar-actions">
+          <Button onClick={() => { setSearch(''); setBranchId(undefined); setDepartmentId(undefined); setCategory(undefined) }}>Сбросить</Button>
           {archiveMode ? (
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/warehouse')}>К оборудованию</Button>
           ) : (
@@ -557,21 +562,20 @@ export default function WarehousePage({ archiveOnly = false }) {
         </div>
       </div>
 
-      {!archiveMode && <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+      {!archiveMode && <div className="warehouse-categories" aria-label="Категории склада">
         {summary.map((row) => (
-          <Col xs={12} sm={8} lg={4} key={row.category}>
-            <Card
-              hoverable
-              size="small"
+            <button
+              type="button"
+              key={row.category}
+              className={`warehouse-category${category === row.category ? ' is-active' : ''}`}
+              aria-pressed={category === row.category}
               onClick={() => setCategory(row.category)}
-              style={{ borderColor: category === row.category ? '#1677ff' : undefined }}
             >
-              <Typography.Text type="secondary">{row.category}</Typography.Text>
-              <Typography.Title level={3} style={{ margin: '4px 0 0' }}>{row.count}</Typography.Title>
-            </Card>
-          </Col>
+              <span>{row.category}</span>
+              <strong>{loading || loadError ? '—' : row.count.toLocaleString('ru-RU')}</strong>
+            </button>
         ))}
-      </Row>}
+      </div>}
 
       {archiveMode ? (
         <Card title="Архивные позиции">
@@ -579,7 +583,7 @@ export default function WarehousePage({ archiveOnly = false }) {
             <Table
               rowKey="id" dataSource={filteredItems} columns={genericColumns} loading={loading}
               size="small" scroll={{ x: 'max-content' }}
-              pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (total) => `Позиций: ${total}` }}
+              pagination={{ defaultPageSize: 25, showSizeChanger: true, showTotal: (total) => `Позиций: ${total}` }}
             />
           )}
         </Card>
@@ -606,10 +610,14 @@ export default function WarehousePage({ archiveOnly = false }) {
               rowKey="id"
               dataSource={category === 'Принтеры' ? filteredDevices : filteredItems}
               columns={category === 'Принтеры' ? printerColumns : selectedColumns}
+              rowClassName={(row) => selected === (category === 'Принтеры' ? `/devices/${row.id}` : `/warehouse/items/${row.id}`) ? 'selected-record-row' : ''}
+              onRow={(row) => ({ onClick: (event) => {
+                if (!event.target.closest('button,a,input')) navigate(category === 'Принтеры' ? `/devices/${row.id}` : `/warehouse/items/${row.id}`)
+              } })}
               loading={loading}
               size="small"
               scroll={{ x: 'max-content' }}
-              pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (total) => `Позиций: ${total}` }}
+              pagination={{ defaultPageSize: 25, showSizeChanger: true, showTotal: (total) => `Позиций: ${total}` }}
             />
           )}
         </Card>

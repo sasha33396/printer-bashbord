@@ -93,8 +93,9 @@ function TransferModal({ open, item, workplaces, onClose, onSaved }) {
   </Modal>
 }
 
-export default function WarehouseItemPage() {
-  const { id } = useParams()
+export default function WarehouseItemPage({ recordId } = {}) {
+  const params = useParams()
+  const id = recordId ?? params.id
   const navigate = useNavigate()
   const [item, setItem] = useState(null)
   const [assignments, setAssignments] = useState([])
@@ -292,7 +293,7 @@ export default function WarehouseItemPage() {
       <section className="workplace-section"><EquipmentPhotos itemId={item.id} /></section>
       <section className="workplace-section">
         <div className="workplace-section-header"><div><h2>История закрепления</h2><p>Рабочие места и сотрудники за всё время</p></div></div>
-        <Table rowKey="id" dataSource={assignments} columns={assignmentColumns} size="small" scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, hideOnSinglePage: true }} />
+        <Table rowKey="id" dataSource={assignments} columns={assignmentColumns} size="small" scroll={{ x: 'max-content' }} pagination={{ defaultPageSize: 10, hideOnSinglePage: true }} />
       </section>
       <section className="workplace-section">
         <div className="workplace-section-header">

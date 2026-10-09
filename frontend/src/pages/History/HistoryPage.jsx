@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import api from '../../api/api'
 import { serverChoiceFilter, serverTextFilter } from '../../components/ColumnSearchFilter'
+import PageHeading from '../../components/PageHeading'
 
 const CATEGORY = {
   equipment: { label: 'Оборудование', color: 'blue' },
@@ -46,7 +47,7 @@ function formatValue(value) {
   return String(value)
 }
 
-export default function HistoryPage() {
+export default function HistoryPage({ embedded = false } = {}) {
   const location = useLocation()
   const navigate = useNavigate()
   const initial = useMemo(() => new URLSearchParams(location.search), [location.search])
@@ -56,6 +57,7 @@ export default function HistoryPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState('')
+  const [searchDraft, setSearchDraft] = useState('')
   const [category, setCategory] = useState()
   const [eventType, setEventType] = useState()
   const [branchName, setBranchName] = useState()
@@ -143,11 +145,13 @@ export default function HistoryPage() {
   ]
 
   return <>
+    {!embedded && <PageHeading title="История движений" description="События оборудования, рабочих мест и ремонтов. Серверные фильтры и полный журнал изменений" />}
     <div className="page-toolbar history-toolbar">
-      <Typography.Title level={3} style={{ margin: 0 }}>История движений</Typography.Title>
       <Input.Search
         placeholder="Инв. номер, наименование, сотрудник"
         allowClear
+        value={searchDraft}
+        onChange={(event) => setSearchDraft(event.target.value)}
         onSearch={(value) => { setSearch(value); setPage(1) }}
         style={{ width: 300 }}
       />
@@ -176,6 +180,7 @@ export default function HistoryPage() {
         style={{ width: 210 }}
       />
       <DatePicker.RangePicker value={period} onChange={(value) => { setPeriod(value); setPage(1) }} format="DD.MM.YYYY" />
+      <Button onClick={() => { setSearch(''); setSearchDraft(''); setCategory(undefined); setEventType(undefined); setBranchName(undefined); setEmployeeName(undefined); setPeriod(undefined); setColumnSearch({}); setPage(1) }}>Сбросить фильтры</Button>
       {(entityType || entityId) && <Button onClick={() => navigate('/history')}>Показать всю историю</Button>}
     </div>
     <Table

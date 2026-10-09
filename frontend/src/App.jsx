@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom'
-import { Layout, Menu, Button, Drawer, Grid, Space, Typography } from 'antd'
+import { Layout, Menu, Button, Drawer, Grid, Space, Typography, Avatar } from 'antd'
 import {
   PrinterOutlined,
   BarChartOutlined,
@@ -12,6 +12,7 @@ import {
   DesktopOutlined,
   HistoryOutlined,
   SafetyCertificateOutlined,
+  HomeOutlined, ToolOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import './styles.css'
 
@@ -27,6 +28,9 @@ import WorkplaceCardPage from './pages/Workplaces/WorkplaceCardPage'
 import HistoryPage from './pages/History/HistoryPage'
 import DigitalDocumentsPage from './pages/DigitalDocuments/DigitalDocumentsPage'
 import DigitalDocumentCardPage from './pages/DigitalDocuments/DigitalDocumentCardPage'
+import OverviewPage from './pages/Overview/OverviewPage'
+import RepairsPage from './pages/Repairs/RepairsPage'
+import RecordPanel from './components/RecordPanel'
 
 const { Header, Sider, Content } = Layout
 const BarcodeScannerModal = lazy(() => import('./components/BarcodeScannerModal'))
@@ -51,13 +55,15 @@ function PrivateRoute({ children }) {
 }
 
 const menuItems = [
-  { key: '/devices',   icon: <PrinterOutlined />,  label: <Link to="/devices">Устройства</Link> },
-  { key: '/warehouse', icon: <InboxOutlined />,    label: <Link to="/warehouse">Оборудование</Link> },
+  { key: '/', icon: <HomeOutlined />, label: <Link to="/">Обзор</Link> },
+  { key: '/devices',   icon: <PrinterOutlined />,  label: <Link to="/devices">Принтеры</Link> },
+  { key: '/warehouse', icon: <InboxOutlined />,    label: <Link to="/warehouse">Склад</Link> },
   { key: '/workplaces', icon: <DesktopOutlined />, label: <Link to="/workplaces">Рабочие места</Link> },
-  { key: '/digital-documents', icon: <SafetyCertificateOutlined />, label: <Link to="/digital-documents/ecp">Учет ЭЦП и МЧД</Link> },
-  { key: '/history', icon: <HistoryOutlined />, label: <Link to="/history">История движений</Link> },
+  { key: '/repairs', icon: <ToolOutlined />, label: <Link to="/repairs">Ремонты</Link> },
   { key: '/analytics', icon: <BarChartOutlined />,  label: <Link to="/analytics">Аналитика</Link> },
-  { key: '/settings',  icon: <SettingOutlined />,   label: <Link to="/settings">Справочники</Link> },
+  { key: '/digital-documents', icon: <SafetyCertificateOutlined />, label: <Link to="/digital-documents/ecp">ЭЦП и МЧД</Link> },
+  { key: '/history', icon: <HistoryOutlined />, label: <Link to="/history">История движений</Link> },
+  { key: '/settings',  icon: <SettingOutlined />,   label: <Link to="/settings">Настройки</Link> },
 ]
 
 function AppLayout() {
@@ -65,6 +71,7 @@ function AppLayout() {
   const navigate = useNavigate()
   const [scannerOpen, setScannerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.lg
 
@@ -74,12 +81,21 @@ function AppLayout() {
   }
 
   const selectedKey = '/' + location.pathname.split('/')[1]
+  const sectionTitle = { '/': 'Панель управления', '/devices': 'Принтеры', '/warehouse': 'Склад',
+    '/workplaces': 'Рабочие места', '/repairs': 'Ремонты', '/analytics': 'Аналитика',
+    '/digital-documents': 'ЭЦП и МЧД', '/history': 'История движений', '/settings': 'Настройки' }[selectedKey] || 'printer-bashbord'
+  const username = getUsername()
+  const toggleSidebar = () => setCollapsed((value) => {
+    localStorage.setItem('sidebarCollapsed', String(!value))
+    return !value
+  })
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      {!isMobile && <Sider>
-        <div style={{ color: '#fff', padding: '16px', fontWeight: 'bold', fontSize: 16 }}>
-          Printer Dashboard
+    <Layout className="app-shell" style={{ '--sidebar-width': isMobile ? '0px' : collapsed ? '64px' : '212px' }}>
+      {!isMobile && <Sider width={212} collapsedWidth={64} collapsed={collapsed} className="app-sidebar">
+        <div className="app-brand" title="printer-bashbord">
+          <span className="brand-icon"><PrinterOutlined /></span>
+          {!collapsed && <span>printer-bashbord</span>}
         </div>
         <Menu
           theme="dark"
@@ -87,28 +103,30 @@ function AppLayout() {
           selectedKeys={[selectedKey]}
           items={menuItems}
         />
+        <div className="sidebar-footer">{!collapsed && <span>Учёт IT-активов</span>}<Button type="text" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={toggleSidebar} aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'} /></div>
       </Sider>}
-      <Layout>
+      <Layout className="app-main-layout">
         <Header className="app-header">
           <Space size={8}>
             {isMobile && <Button icon={<MenuOutlined />} onClick={() => setMenuOpen(true)} aria-label="Открыть меню" />}
             <Typography.Text strong className="app-title">
-            Учёт печатающей техники
+              {sectionTitle}
             </Typography.Text>
           </Space>
           <Space>
             <Button icon={<BarcodeOutlined />} onClick={() => setScannerOpen(true)} aria-label="Сканировать штрихкод" title="Сканировать штрихкод">
               <span className="desktop-only">Сканировать штрихкод</span>
             </Button>
-            <Typography.Text className="desktop-only">{getUsername()}</Typography.Text>
+            <div className="header-user"><Avatar size={32}>{username.slice(0, 2).toUpperCase()}</Avatar><Typography.Text className="desktop-only">{username}</Typography.Text></div>
             <Button icon={<LogoutOutlined />} onClick={logout} aria-label="Выйти" title="Выйти">
               <span className="desktop-only">Выйти</span>
             </Button>
           </Space>
         </Header>
         <Content className="app-content">
-          <Routes>
-            <Route path="/" element={<Navigate to="/devices" replace />} />
+          <RecordPanel><Routes>
+            <Route path="/" element={<PrivateRoute><OverviewPage /></PrivateRoute>} />
+            <Route path="/repairs" element={<PrivateRoute><RepairsPage /></PrivateRoute>} />
             <Route path="/devices" element={<PrivateRoute><DevicesPage /></PrivateRoute>} />
             <Route path="/devices/:id" element={<PrivateRoute><DeviceCardPage /></PrivateRoute>} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
@@ -122,16 +140,17 @@ function AppLayout() {
             <Route path="/digital-documents/:kind" element={<PrivateRoute><DigitalDocumentsPage /></PrivateRoute>} />
             <Route path="/digital-documents/:kind/:id" element={<PrivateRoute><DigitalDocumentCardPage /></PrivateRoute>} />
             <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
-          </Routes>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes></RecordPanel>
         </Content>
       </Layout>
       <Drawer
-        title="Printer Dashboard"
+        title="printer-bashbord"
         placement="left"
         width={280}
         open={isMobile && menuOpen}
         onClose={() => setMenuOpen(false)}
-        styles={{ body: { padding: 0, background: '#001529' } }}
+        styles={{ body: { padding: 0, background: '#17263C' } }}
       >
         <Menu
           theme="dark"

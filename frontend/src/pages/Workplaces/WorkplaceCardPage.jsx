@@ -179,8 +179,9 @@ function WorkplacePhotoPicker({ open, workplace, onClose, onSaved }) {
   </Modal>
 }
 
-export default function WorkplaceCardPage() {
-  const { id } = useParams()
+export default function WorkplaceCardPage({ recordId } = {}) {
+  const params = useParams()
+  const id = recordId ?? params.id
   const navigate = useNavigate()
   const [workplace, setWorkplace] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -417,7 +418,7 @@ export default function WorkplaceCardPage() {
       <div className="workplace-section-header"><div><h2>История оборудования</h2><p>Все установки и снятия с рабочего места</p></div></div>
       <Table
         rowKey="id" dataSource={workplace.assignment_history} columns={historyColumns}
-        size="small" scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, hideOnSinglePage: true }}
+        size="small" scroll={{ x: 'max-content' }} pagination={{ defaultPageSize: 10, hideOnSinglePage: true }}
       />
     </section>
 

@@ -9,6 +9,9 @@ import {
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
+import PageHeading from '../../components/PageHeading'
+import DistributionCard from '../../components/DistributionCard'
+import HistoryPage from '../History/HistoryPage'
 
 const { RangePicker } = DatePicker
 
@@ -261,7 +264,7 @@ export default function AnalyticsPage() {
   // ---- Render ----
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Аналитика</Typography.Title>
+      <PageHeading title="Аналитика" description="Затраты по оборудованию, статистика ремонтов и журнал движений" />
 
       {/* Filters */}
       <Card style={{ marginBottom: 20 }}>
@@ -341,6 +344,12 @@ export default function AnalyticsPage() {
       </Row>
 
       {/* Costs table */}
+      <div className="analytics-charts">
+        <DistributionCard title="Устройства по филиалам (по фильтру)" loading={loadingCost}
+          rows={Object.entries(costs.reduce((result, row) => { const key = row.branch || 'Не указан'; result[key] = (result[key] || 0) + 1; return result }, {})).map(([label, count]) => ({ label, count }))} />
+        <DistributionCard title="Ремонты за период (все филиалы)" loading={loadingSum} donut
+          rows={REPAIR_TYPES.map(({ key, label }) => ({ label, count: summary?.repairs_by_type?.[key] || 0 }))} />
+      </div>
       <Card
         title={<Typography.Text strong>Затраты по устройствам</Typography.Text>}
         extra={
@@ -360,8 +369,7 @@ export default function AnalyticsPage() {
           loading={loadingCost}
           size="small"
           scroll={{ x: 'max-content' }}
-          pagination={{
-            pageSize: 20,
+          pagination={{ defaultPageSize: 20,
             showSizeChanger: true,
             showTotal: (total) => `Всего: ${total}`,
           }}
@@ -385,6 +393,9 @@ export default function AnalyticsPage() {
             )
           }}
         />
+      </Card>
+      <Card className="analytics-history" title="Журнал движений устройств">
+        <HistoryPage embedded />
       </Card>
     </>
   )

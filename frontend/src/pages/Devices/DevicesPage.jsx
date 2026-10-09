@@ -1,10 +1,12 @@
+import { useRecordNavigation, useRecordPanel } from '../../components/RecordPanelContext'
+import PageHeading from '../../components/PageHeading'
+import KpiCards from '../../components/KpiCards'
 import DeviceModal from '../../components/DeviceModal'
 import Table from '../../components/FilterableTable'
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   Button, Space, Tag, Select, Popconfirm, Modal,
-  Upload, Typography, message, List,
+  Upload, Typography, message, List, Input, Alert,
 } from 'antd'
 import {
   PlusOutlined, UploadOutlined, DownloadOutlined,
@@ -57,7 +59,8 @@ function downloadTemplate() {
 // ---------------------------------------------------------------------------
 
 export default function DevicesPage() {
-  const navigate = useNavigate()
+  const navigate = useRecordNavigation()
+  const { revision, selected } = useRecordPanel()
 
   const [devices,       setDevices]       = useState([])
   const [branches,      setBranches]      = useState([])
@@ -70,6 +73,11 @@ export default function DevicesPage() {
   const [modalOpen,    setModalOpen]    = useState(false)
   const [editing,      setEditing]      = useState(null)
   const [importResult, setImportResult] = useState(null)
+  const [loadError, setLoadError] = useState(false)
+  const [search, setSearch] = useState('')
+  const visibleDevices = devices.filter((device) => [device.inventory_number, device.serial_number, device.manufacturer,
+    device.model, device.ip_address, device.mac_address, device.location, device.department?.name, device.department?.branch?.name]
+    .some((value) => String(value || '').toLowerCase().includes(search.trim().toLowerCase())))
 
   // Load branch + dept + manufacturer dictionaries once
   useEffect(() => {
@@ -89,6 +97,7 @@ export default function DevicesPage() {
   }, [])
 
   const loadDevices = useCallback(async (f) => {
+    setLoadError(false)
     setLoading(true)
     try {
       const params = Object.fromEntries(
@@ -97,13 +106,14 @@ export default function DevicesPage() {
       const res = await api.get('/devices', { params })
       setDevices(res.data)
     } catch {
+      setLoadError(true)
       message.error('Не удалось загрузить устройства')
     } finally {
       setLoading(false)
     }
   }, [filters])
 
-  useEffect(() => { loadDevices() }, [loadDevices])
+  useEffect(() => { loadDevices() }, [loadDevices, revision])
 
   // ---- Filters ----
 
@@ -197,11 +207,13 @@ export default function DevicesPage() {
       dataIndex: 'inventory_number',
       key: 'inventory_number',
       width: 130,
-      render: (value) => value || '—',
+      sorter: (a, b) => String(a.inventory_number || '').localeCompare(String(b.inventory_number || ''), 'ru', { numeric: true }),
+      render: (value, row) => <Button type="link" onClick={() => navigate(`/devices/${row.id}`)}>{value || 'Без номера'}</Button>,
     },
     {
       title: 'Модель',
       key: 'model',
+      width: 210,
       render: (_, r) => `${r.manufacturer} ${r.model}`,
     },
     {
@@ -263,11 +275,13 @@ export default function DevicesPage() {
         <Space size={4}>
           <Button
             icon={<EyeOutlined />}
+            title="Открыть карточку" aria-label="Открыть карточку"
             size="small"
             onClick={() => navigate(`/devices/${record.id}`)}
           />
           <Button
             icon={<EditOutlined />}
+            title="Редактировать устройство" aria-label="Редактировать устройство"
             size="small"
             onClick={() => openEdit(record)}
           />
@@ -279,21 +293,31 @@ export default function DevicesPage() {
             cancelText="Отмена"
             okButtonProps={{ danger: true }}
           >
-            <Button icon={<DeleteOutlined />} size="small" danger />
+            <Button icon={<DeleteOutlined />} title="Удалить устройство" aria-label="Удалить устройство" size="small" danger />
           </Popconfirm>
         </Space>
       ),
     },
   ]
+  const columnOrder = ['inventory_number', 'device_type', 'model', 'ip_address', 'mac_address', 'org', 'location', 'status', 'warranty_until', 'actions']
+  const orderedColumns = columnOrder.map((key) => columns.find((column) => column.key === key))
 
   // ---- Render ----
 
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Устройства</Typography.Title>
+      {loadError && <Alert className="page-alert" type="error" showIcon message="Не удалось загрузить данные. Проверьте соединение и повторите запрос." action={<Button onClick={() => loadDevices()}>Повторить</Button>} />}
+      <PageHeading title="Принтеры" description="Учёт принтеров, МФУ, плоттеров и сканеров. Счётчики, расходники и история оборудования" />
+      <KpiCards loading={loading} items={[
+        { label: 'Устройств по фильтру', value: loadError ? null : devices.length },
+        { label: 'Активные', value: loadError ? null : devices.filter((row) => row.status === 'active').length, tone: 'green' },
+        { label: 'В ремонте', value: loadError ? null : devices.filter((row) => row.status === 'repair').length, tone: 'amber' },
+        { label: 'Списаны', value: loadError ? null : devices.filter((row) => row.status === 'decommissioned').length, tone: 'red' },
+      ]} />
 
       {/* Toolbar */}
       <div className="page-toolbar" style={{ marginBottom: 16 }}>
+        <Input.Search placeholder="Инв. №, модель, серийный №, IP, MAC" aria-label="Поиск принтеров" allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 270 }} />
         <Select
           style={{ width: 176 }}
           placeholder="Все филиалы"
@@ -339,6 +363,7 @@ export default function DevicesPage() {
           allowClear
         />
 
+        <Button onClick={() => { setFilters({}); setSearch('') }}>Сбросить</Button>
         <div className="toolbar-actions">
           <Button icon={<DownloadOutlined />} onClick={downloadTemplate}>
             Скачать шаблон
@@ -357,13 +382,14 @@ export default function DevicesPage() {
       {/* Table */}
       <Table
         rowKey="id"
-        dataSource={devices}
-        columns={columns}
+        dataSource={visibleDevices}
+        columns={orderedColumns}
         loading={loading}
         size="small"
+        rowClassName={(row) => selected === `/devices/${row.id}` ? 'selected-record-row' : ''}
+        onRow={(row) => ({ onClick: (event) => { if (!event.target.closest('button,a,input,.ant-typography-copy')) navigate(`/devices/${row.id}`) } })}
         scroll={{ x: 'max-content' }}
-        pagination={{
-          pageSize: 25,
+        pagination={{ defaultPageSize: 25,
           showSizeChanger: true,
           showTotal: (total) => `Всего: ${total}`,
         }}

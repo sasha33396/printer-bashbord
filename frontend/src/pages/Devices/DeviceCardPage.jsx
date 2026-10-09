@@ -191,8 +191,9 @@ function ConsumableModal({ open, editing, deviceId, onClose, onSaved }) {
 // DeviceCardPage
 // ---------------------------------------------------------------------------
 
-export default function DeviceCardPage() {
-  const { id }    = useParams()
+export default function DeviceCardPage({ recordId } = {}) {
+  const params = useParams()
+  const id = recordId ?? params.id
   const navigate  = useNavigate()
 
   const [device,   setDevice]   = useState(null)
@@ -535,7 +536,7 @@ export default function DeviceCardPage() {
           <Table rowKey="id" dataSource={repairs} columns={repairCols}
             loading={repairsLoading} size="small"
             scroll={{ x: 'max-content' }}
-            pagination={{ pageSize: 15, hideOnSinglePage: true }}
+            pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
           />
         </>
       ),
@@ -566,7 +567,7 @@ export default function DeviceCardPage() {
           <Table rowKey="id" dataSource={consumables} columns={consumableCols}
             loading={consumablesLoading} size="small"
             scroll={{ x: 'max-content' }}
-            pagination={{ pageSize: 15, hideOnSinglePage: true }}
+            pagination={{ defaultPageSize: 15, hideOnSinglePage: true }}
           />
         </>
       ),

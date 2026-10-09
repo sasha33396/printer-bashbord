@@ -2,10 +2,11 @@ import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useState } from 'react'
 import {
   Button, Col, Form, Input, Modal, Popconfirm, Row, Select,
-  Space, Switch, Tag, Typography, message,
+  Space, Switch, Tag, Typography, message, Card, Descriptions, Avatar,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import api from '../../api/api'
+import KpiCards from '../../components/KpiCards'
 
 const errorMessage = (error, fallback) => {
   const detail = error.response?.data?.detail
@@ -20,6 +21,8 @@ export default function EmployeesTab() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [selectedId, setSelectedId] = useState(null)
+  const selected = employees.find((employee) => employee.id === selectedId)
   const [form] = Form.useForm()
   const branchId = Form.useWatch('branch_id', form)
 
@@ -116,26 +119,51 @@ export default function EmployeesTab() {
     {
       title: '', key: 'actions', width: 88, align: 'right',
       render: (_, item) => <Space size={4}>
-        <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(item)} />
+        <Button size="small" icon={<EditOutlined />} title="Редактировать сотрудника" aria-label="Редактировать сотрудника" onClick={() => openEdit(item)} />
         <Popconfirm title="Удалить сотрудника?" okText="Удалить" cancelText="Отмена" onConfirm={() => remove(item.id)}>
-          <Button size="small" danger icon={<DeleteOutlined />} />
+          <Button size="small" danger icon={<DeleteOutlined />} title="Удалить сотрудника" aria-label="Удалить сотрудника" />
         </Popconfirm>
       </Space>,
     },
   ]
 
   return <>
+    <KpiCards loading={loading} items={[
+      { label: 'Сотрудники', value: employees.length },
+      { label: 'Активные', value: employees.filter((row) => row.is_active).length, tone: 'green' },
+      { label: 'Неактивные', value: employees.filter((row) => !row.is_active).length },
+      { label: 'С логином AD', value: employees.filter((row) => row.ad_login).length },
+    ]} />
     <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
       <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Добавить сотрудника</Button>
     </div>
-    <Table
+    <div className={`repairs-grid${selected ? ' has-selection' : ''}`}>
+    <div className="workspace-main"><Table searchable
       rowKey="id"
       dataSource={employees}
       columns={columns}
       loading={loading}
+      rowClassName={(row) => selectedId === row.id ? 'selected-record-row' : ''}
+      onRow={(row) => ({ onClick: (event) => { if (!event.target.closest('button,a,input')) setSelectedId(row.id) } })}
       scroll={{ x: 'max-content' }}
-      pagination={{ pageSize: 20, hideOnSinglePage: true }}
-    />
+      pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
+    /></div>
+    {selected && <Card className="repair-detail" title="Информация о сотруднике" extra={<Button type="text" onClick={() => setSelectedId(null)}>Закрыть</Button>}>
+      <Space align="start"><Avatar size={40} style={{ background: '#EFF6FF', color: '#2563EB' }}>{selected.full_name?.split(' ').slice(0, 2).map((part) => part[0]).join('')}</Avatar><div><strong>{selected.full_name}</strong><div style={{ marginTop: 6 }}><Tag color={selected.is_active ? 'green' : 'default'}>{selected.is_active ? 'Работает' : 'Неактивен'}</Tag></div></div></Space>
+      <Descriptions className="employee-details" size="small" column={1} items={[
+        { key: 'login', label: 'Логин AD', children: selected.ad_login || '—' },
+        { key: 'domain', label: 'Домен AD', children: selected.ad_domain || '—' },
+        { key: 'guid', label: 'GUID AD', children: selected.ad_guid || '—' },
+        { key: 'email', label: 'Email', children: selected.email || '—' },
+        { key: 'phone', label: 'Телефон', children: selected.phone || '—' },
+        { key: 'branch', label: 'Филиал', children: selected.branch?.name || '—' },
+        { key: 'department', label: 'Отдел', children: selected.department?.name || '—' },
+        { key: 'position', label: 'Должность', children: selected.position || '—' },
+        { key: 'notes', label: 'Примечание', children: selected.notes || '—' },
+      ]} />
+      <Button icon={<EditOutlined />} onClick={() => openEdit(selected)}>Редактировать</Button>
+    </Card>}
+    </div>
     <Modal
       title={editing ? 'Редактировать сотрудника' : 'Новый сотрудник'}
       open={open}
