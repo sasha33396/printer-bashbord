@@ -87,6 +87,7 @@ def _device_card(device: Device) -> dict:
         "inventory_number": device.inventory_number,
         "data": {
             "ip_address": device.ip_address,
+            "mac_address": device.mac_address,
             "page_counter": device.page_counter,
             "counter_checked_at": device.counter_checked_at,
             "serial_number": device.serial_number,
@@ -337,6 +338,8 @@ def _import_device(db: Session, inventory_number: str, data: dict) -> str:
         device = Device(inventory_number=inventory_number)
         db.add(device)
     device.ip_address = data.get("ip_address")
+    if "mac_address" in data:
+        device.mac_address = normalize_mac_address(data["mac_address"])
     device.page_counter = data.get("page_counter")
     device.counter_checked_at = data.get("counter_checked_at")
     device.serial_number = data.get("serial_number")

@@ -18,7 +18,7 @@ from inventory_numbers import (
     inventory_number_lock, inventory_number_owner,
     require_inventory_number,
 )
-from network import normalize_ip_address
+from network import normalize_ip_address, normalize_mac_address
 from photo_storage import (
     IMAGE_TYPES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_ITEM,
     delete_photo_directory, equipment_photo_key, image_extension, next_photo_filename,
@@ -238,6 +238,7 @@ def import_devices(
     # 9 Гарантия до  10 Статус       11 Примечание
     data_rows = rows[1:]  # пропускаем заголовок
     ip_column = actual.index("ip-адрес") if "ip-адрес" in actual else None
+    mac_column = actual.index("mac-адрес") if "mac-адрес" in actual else None
 
     created = 0
     skipped = 0
@@ -324,6 +325,7 @@ def import_devices(
 
         try:
             ip_value = normalize_ip_address(_cell(row, ip_column)) if ip_column is not None else None
+            mac_value = normalize_mac_address(_cell(row, mac_column)) if mac_column is not None else None
         except ValueError as exc:
             errors.append(f"Строка {row_num}: {exc}")
             skipped += 1
@@ -331,6 +333,7 @@ def import_devices(
 
         device_data = dict(
             ip_address=ip_value,
+            mac_address=mac_value,
             serial_number=_cell(row, 1),
             manufacturer=manufacturer,
             model=model_name,
@@ -547,6 +550,7 @@ def update_device(
             changes = changed_values(before, data, {
                 "inventory_number": "Инвентарный номер",
                 "ip_address": "IP-адрес",
+                "mac_address": "MAC-адрес",
                 "serial_number": "Серийный номер",
                 "manufacturer": "Производитель",
                 "model": "Модель",

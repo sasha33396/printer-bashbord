@@ -1,7 +1,7 @@
 import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Alert, Button, DatePicker, Form, Input, Modal, Select, Space, Spin, Tag, message,
+  Alert, Button, DatePicker, Form, Input, Modal, Select, Space, Spin, Tag, Typography, message,
 } from 'antd'
 import {
   ArrowLeftOutlined, EditOutlined, HistoryOutlined, PrinterOutlined, RetweetOutlined, UndoOutlined,
@@ -272,8 +272,10 @@ export default function WarehouseItemPage() {
         <DetailField label="Модель" value={item.model} />
         {['Компьютеры', 'Ноутбуки', 'Телефоны'].includes(item.category) && <>
           <DetailField label="IP-адрес" value={item.ip_address} />
-          <DetailField label="MAC-адрес" value={item.mac_address} />
         </>}
+        {(item.tracking_type === 'asset' || ['Компьютеры', 'Ноутбуки', 'Телефоны'].includes(item.category)) && (
+          <DetailField label="MAC-адрес" value={item.mac_address && <Typography.Text copyable={{ text: item.mac_address }}>{item.mac_address}</Typography.Text>} />
+        )}
         <DetailField label="Серийный №" value={item.serial_number} />
         <DetailField label="Артикул" value={item.sku} />
       </div>

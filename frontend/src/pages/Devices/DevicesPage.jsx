@@ -38,7 +38,7 @@ const STATUS_OPTIONS = Object.entries(STATUS_CONFIG).map(([v, c]) => ({ value: v
 const TEMPLATE_COLS = [
   'Инв.номер', 'Серийный номер', 'Производитель', 'Модель', 'Тип',
   'Филиал', 'Отдел', 'Кабинет', 'Дата покупки', 'Гарантия до', 'Статус', 'Примечание',
-  'IP-адрес',
+  'IP-адрес', 'MAC-адрес',
 ]
 
 // ---------------------------------------------------------------------------
@@ -182,6 +182,15 @@ export default function DevicesPage() {
           />
         </Space>
       ) : <Typography.Text type="secondary">—</Typography.Text>,
+    },
+    {
+      title: 'MAC-адрес',
+      dataIndex: 'mac_address',
+      key: 'mac_address',
+      width: 200,
+      render: (value) => value
+        ? <Typography.Text copyable={{ text: value }}>{value}</Typography.Text>
+        : <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
       title: 'Инв.№',
