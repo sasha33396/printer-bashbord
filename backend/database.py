@@ -24,6 +24,7 @@ def initialize_database():
         columns = {column["name"] for column in inspect(connection).get_columns("devices")}
         for name, sql_type in (
             ("ip_address", "VARCHAR(45)"),
+            ("mac_address", "VARCHAR(17)"),
             ("page_counter", "INTEGER"),
             ("counter_checked_at", "VARCHAR(40)"),
         ):

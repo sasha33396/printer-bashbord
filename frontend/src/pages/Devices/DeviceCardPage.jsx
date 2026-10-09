@@ -645,6 +645,9 @@ export default function DeviceCardPage() {
               </Space>
             )}
           />
+          <DetailField label="MAC-адрес" value={device.mac_address && (
+            <Typography.Text copyable={{ text: device.mac_address }}>{device.mac_address}</Typography.Text>
+          )} />
           <DetailField label="Производитель" value={device.manufacturer} />
           <DetailField label="Модель" value={device.model} />
           <DetailField label="Серийный №" value={device.serial_number} />

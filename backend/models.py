@@ -136,6 +136,7 @@ class Device(Base):
     inventory_number = Column(String(100), nullable=True, unique=True, index=True)
     serial_number = Column(String(100), unique=True, nullable=True, index=True)
     ip_address = Column(String(45), nullable=True)
+    mac_address = Column(String(17), nullable=True)
     page_counter = Column(Integer, nullable=True)
     counter_checked_at = Column(String(40), nullable=True)
     manufacturer = Column(String(255), nullable=False)

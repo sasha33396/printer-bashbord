@@ -82,6 +82,7 @@ class DepartmentRead(BaseModel):
 
 class DeviceCreate(BaseModel):
     ip_address: IPAddress = None
+    mac_address: MACAddress = None
     inventory_number: Optional[str] = None
     serial_number: Optional[str] = None
     manufacturer: str
@@ -97,6 +98,7 @@ class DeviceCreate(BaseModel):
 
 class DeviceUpdate(BaseModel):
     ip_address: IPAddress = None
+    mac_address: MACAddress = None
     inventory_number: Optional[str] = None
     serial_number: Optional[str] = None
     manufacturer: Optional[str] = None
@@ -112,6 +114,7 @@ class DeviceUpdate(BaseModel):
 
 class DeviceRead(BaseModel):
     ip_address: IPAddress = None
+    mac_address: MACAddress = None
     page_counter: Optional[int] = None
     counter_checked_at: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)

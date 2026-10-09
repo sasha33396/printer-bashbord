@@ -66,6 +66,7 @@ export default function DeviceModal({ open, editing, branches, departments, manu
       ...raw,
       inventory_number: raw.inventory_number?.trim() || null,
       ip_address: raw.ip_address?.trim() || null,
+      mac_address: raw.mac_address?.trim() || null,
       purchase_date:  fromDayjs(raw.purchase_date),
       warranty_until: fromDayjs(raw.warranty_until),
     }
@@ -242,6 +243,15 @@ export default function DeviceModal({ open, editing, branches, departments, manu
           <Col span={12}>
             <Form.Item name="ip_address" label="IP-адрес">
               <Input placeholder="Например: 192.168.1.100" allowClear />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item name="mac_address" label="MAC-адрес" rules={[{
+              transform: (value) => value?.trim(),
+              pattern: /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{12}$|^[0-9A-Fa-f]{4}(\.[0-9A-Fa-f]{4}){2}$/,
+              message: 'Формат: AA:BB:CC:DD:EE:FF',
+            }]}>
+              <Input placeholder="AA:BB:CC:DD:EE:FF" allowClear />
             </Form.Item>
           </Col>
           <Col span={24}>
