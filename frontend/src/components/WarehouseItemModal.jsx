@@ -65,6 +65,9 @@ export default function WarehouseItemModal({
       if (editing) values.branch_id = values.branch_id ?? null
     }
     if (values.tracking_type === 'asset') values.inventory_number = values.inventory_number?.trim() || null
+    if (values.tracking_type === 'asset' || NETWORK_CATEGORIES.has(values.category)) {
+      values.mac_address = values.mac_address?.trim() || null
+    }
     setSaving(true)
     try {
       if (editing) {
@@ -191,25 +194,28 @@ export default function WarehouseItemModal({
             <Col span={12}><Form.Item name="monitor_diagonal" label="Диагональ, дюймы"><InputNumber min={1} style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={12}><Form.Item name="color" label="Цвет"><Input /></Form.Item></Col>
           </>}
-          {NETWORK_CATEGORIES.has(selectedCategory) && <>
+          {NETWORK_CATEGORIES.has(selectedCategory) && (
             <Col span={12}>
               <Form.Item name="ip_address" label="IP-адрес">
                 <Input placeholder="172.16.51.73" />
               </Form.Item>
             </Col>
+          )}
+          {(trackingType === 'asset' || NETWORK_CATEGORIES.has(selectedCategory)) && (
             <Col span={12}>
               <Form.Item
                 name="mac_address"
                 label="MAC-адрес"
                 rules={[{
+                  transform: (value) => value?.trim(),
                   pattern: /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{12}$|^[0-9A-Fa-f]{4}(\.[0-9A-Fa-f]{4}){2}$/,
                   message: 'Формат: AA:BB:CC:DD:EE:FF',
                 }]}
               >
-                <Input placeholder="AA:BB:CC:DD:EE:FF" />
+                <Input placeholder="AA:BB:CC:DD:EE:FF" allowClear />
               </Form.Item>
             </Col>
-          </>}
+          )}
           {COMPUTER_CATEGORIES.has(selectedCategory) && <>
             <Col span={8}><Form.Item name="ram_gb" label="ОЗУ, ГБ"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={16}><Form.Item name="processor" label="Процессор"><Input /></Form.Item></Col>

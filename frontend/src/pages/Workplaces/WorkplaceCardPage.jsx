@@ -385,6 +385,7 @@ export default function WorkplaceCardPage() {
               <div className="workplace-asset-main">
                 <strong>{assignment.item.name}</strong>
                 <span>{assignment.item.category} · Инв. № {assignment.item.inventory_number || '—'} · S/N {assignment.item.serial_number || '—'}</span>
+                {assignment.item.mac_address && <span>MAC {assignment.item.mac_address}</span>}
               </div>
               <Tag>{assignment.item.condition}</Tag>
               <Space size={4} wrap>

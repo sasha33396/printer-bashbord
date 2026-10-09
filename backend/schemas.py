@@ -499,6 +499,7 @@ class WorkplaceAssetBrief(BaseModel):
     category: str
     inventory_number: Optional[str] = None
     serial_number: Optional[str] = None
+    mac_address: Optional[str] = None
     manufacturer: Optional[str] = None
     model: Optional[str] = None
     condition: str

@@ -273,6 +273,7 @@ export default function WarehousePage({ archiveOnly = false }) {
     const query = search.trim().toLowerCase()
     return devicesAtLocation.filter((device) => !query || [
       device.inventory_number, device.serial_number, device.manufacturer, device.model,
+      device.ip_address, device.mac_address,
       device.department?.branch?.name, device.department?.name, device.location,
     ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query)))
   }, [devicesAtLocation, search])
@@ -398,6 +399,10 @@ export default function WarehousePage({ archiveOnly = false }) {
     render: (text) => text || '—',
   }
   const notesColumn = { title: 'Примечание', dataIndex: 'notes', ellipsis: true, render: (value) => value || '—' }
+  const macColumn = {
+    title: 'MAC-адрес', dataIndex: 'mac_address', width: 200,
+    render: (value) => value ? <Typography.Text copyable={{ text: value }}>{value}</Typography.Text> : '—',
+  }
   const stateColumn = {
     title: 'Состояние', dataIndex: 'condition', width: 130,
     render: (value) => <Tag color={value === 'Рабочий' || value === 'На складе' ? 'green' : value === 'Списан' ? 'red' : 'orange'}>{value}</Tag>,
@@ -435,13 +440,14 @@ export default function WarehousePage({ archiveOnly = false }) {
       title: 'Количество', key: 'quantity', width: 125, align: 'right',
       render: (_, row) => <Tag color={row.current_quantity <= row.min_quantity ? 'red' : 'green'}>{row.current_quantity} {row.unit}</Tag>,
     },
-    stateColumn, notesColumn, itemActions,
+    macColumn, stateColumn, notesColumn, itemActions,
   ]
   const cartridgeColumns = [
     locationColumn, numberColumn,
     nameColumn,
     { title: 'Для принтеров', dataIndex: 'compatible_printers', render: (value) => value || '—' },
     { title: 'Кол-во', dataIndex: 'current_quantity', width: 90, align: 'right' },
+    macColumn,
     itemActions,
   ]
   const monitorColumns = [
@@ -450,6 +456,7 @@ export default function WarehousePage({ archiveOnly = false }) {
     { title: 'Диагональ', dataIndex: 'monitor_diagonal', width: 100, render: (value) => value ? `${value}″` : '—' },
     { title: 'Цвет', dataIndex: 'color', width: 100, render: (value) => value || '—' },
     { title: 'S/N', dataIndex: 'serial_number', width: 140, render: (value) => value || '—' },
+    macColumn,
     stateColumn, notesColumn, itemActions,
   ]
   const computerColumns = [
@@ -457,7 +464,7 @@ export default function WarehousePage({ archiveOnly = false }) {
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
     nameColumn,
     { title: 'IP-адрес', dataIndex: 'ip_address', width: 130, render: (value) => value || '—' },
-    { title: 'MAC-адрес', dataIndex: 'mac_address', width: 155, render: (value) => value || '—' },
+    macColumn,
     { title: 'ОЗУ', dataIndex: 'ram_gb', width: 75, render: (value) => value != null ? `${value} ГБ` : '—' },
     { title: 'ЦП', dataIndex: 'processor', width: 160, render: (value) => value || '—' },
     { title: 'ГПУ', dataIndex: 'graphics', width: 170, render: (value) => value || '—' },
@@ -469,7 +476,7 @@ export default function WarehousePage({ archiveOnly = false }) {
     locationColumn, numberColumn, nameColumn,
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
     { title: 'IP-адрес', dataIndex: 'ip_address', width: 130, render: (value) => value || '—' },
-    { title: 'MAC-адрес', dataIndex: 'mac_address', width: 155, render: (value) => value || '—' },
+    macColumn,
     { title: 'Производитель', dataIndex: 'manufacturer', width: 140, render: (value) => value || '—' },
     { title: 'Модель', dataIndex: 'model', width: 140, render: (value) => value || '—' },
     stateColumn, notesColumn, itemActions,
@@ -483,6 +490,7 @@ export default function WarehousePage({ archiveOnly = false }) {
     { title: 'S/N', dataIndex: 'serial_number', width: 130, render: (value) => value || '—' },
     { title: 'Наименование', key: 'name', render: (_, row) => `${row.manufacturer} ${row.model}` },
     { title: 'Тип принтера', dataIndex: 'device_type', width: 125, render: (value) => DEVICE_TYPE_LABELS[value] || value },
+    macColumn,
     { title: 'Счётчик', dataIndex: 'page_counter', width: 100, align: 'right', render: (value) => value ?? '—' },
     { title: 'Последний ремонт', key: 'last_repair', width: 135, render: (_, row) => lastRepair[row.id] ? dayjs(lastRepair[row.id]).format('DD.MM.YYYY') : '—' },
     { title: 'Состояние', dataIndex: 'status', width: 115, render: (value) => <Tag>{DEVICE_STATUS_LABELS[value] || value}</Tag> },
