@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Branch, Department
+from models import Branch, Cartridge, Department, MapBuilding, WarehouseItem
 from routers.auth import get_current_user
 from schemas import (
     BranchCreate, BranchUpdate, BranchRead,
@@ -72,6 +72,10 @@ def delete_branch(
             status_code=status.HTTP_409_CONFLICT,
             detail="Нельзя удалить филиал: сначала удалите или перепривяжите все его отделы.",
         )
+    if db.query(Cartridge).join(WarehouseItem).filter(WarehouseItem.branch_id == branch_id).first():
+        raise HTTPException(409, "В филиале числятся картриджи")
+    if db.query(MapBuilding.id).filter(MapBuilding.branch_id == branch_id).first():
+        raise HTTPException(409, "Филиал связан со зданием на карте")
     db.delete(branch)
     db.commit()
 
@@ -118,6 +122,9 @@ def update_department(
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
     data = payload.model_dump(exclude_unset=True)
+    if "branch_id" in data and data["branch_id"] != dept.branch_id:
+        if db.query(Cartridge).join(WarehouseItem).filter(WarehouseItem.department_id == dept_id).first():
+            raise HTTPException(409, "Сначала передайте картриджи из отдела")
     if "branch_id" in data and data["branch_id"] is not None:
         if not db.get(Branch, data["branch_id"]):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
@@ -137,5 +144,7 @@ def delete_department(
     dept = db.get(Department, dept_id)
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
+    if db.query(Cartridge).join(WarehouseItem).filter(WarehouseItem.department_id == dept_id).first():
+        raise HTTPException(409, "В отделе числятся картриджи")
     db.delete(dept)
     db.commit()

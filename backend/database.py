@@ -21,6 +21,9 @@ def initialize_database():
     Base.metadata.create_all(bind=engine)
     # create_all does not add columns to existing installations.
     with engine.begin() as connection:
+        stock_columns = {column["name"] for column in inspect(connection).get_columns("stock_movements")}
+        if "cartridge_conversion" not in stock_columns:
+            connection.execute(text("ALTER TABLE stock_movements ADD COLUMN cartridge_conversion BOOLEAN NOT NULL DEFAULT 0"))
         columns = {column["name"] for column in inspect(connection).get_columns("devices")}
         for name, sql_type in (
             ("ip_address", "VARCHAR(45)"),
@@ -186,6 +189,11 @@ def initialize_database():
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_workplace_asset_assignments_employee_id "
             "ON workplace_asset_assignments (employee_id)"
+        ))
+        connection.execute(text(
+            "UPDATE warehouse_items SET condition = 'Запасной' "
+            "WHERE condition = 'Готов к установке' AND id IN "
+            "(SELECT item_id FROM cartridges WHERE state = 'ready')"
         ))
 
 

@@ -11,12 +11,14 @@ const PATH_TYPES = [
   { pattern: /^\/devices\/(\d+)\/?$/, prefix: 'D' },
   { pattern: /^\/warehouse\/items\/(\d+)\/?$/, prefix: 'I' },
   { pattern: /^\/workplaces\/(\d+)\/?$/, prefix: 'W' },
+  { pattern: /^\/cartridges\/(\d+)\/?$/, prefix: 'C' },
 ]
 
 const TARGET_PATHS = {
   D: (id) => `/devices/${id}`,
   I: (id) => `/warehouse/items/${id}`,
   W: (id) => `/workplaces/${id}`,
+  C: (id) => `/cartridges/${id}`,
 }
 
 export function inventoryBarcodeValue(value) {
@@ -37,7 +39,7 @@ export function barcodeValue(path, inventoryNumber) {
 }
 
 export function barcodeTargetPath(value) {
-  const match = String(value || '').trim().toUpperCase().match(/^PD-([DIW])-(\d+)$/)
+  const match = String(value || '').trim().toUpperCase().match(/^PD-([DIWC])-(\d+)$/)
   if (!match || match[2] === '0') return null
   return TARGET_PATHS[match[1]](match[2])
 }

@@ -16,7 +16,7 @@ from inventory_numbers import (
     require_inventory_number,
 )
 from models import (
-    Branch, Department, StockMovement, StockMovementType,
+    Branch, Cartridge, Department, StockMovement, StockMovementType,
     WarehouseItem, Workplace, WorkplaceAssetAssignment,
 )
 from routers.auth import get_current_user
@@ -153,6 +153,7 @@ def _current_quantity(db: Session, item_id: int) -> int:
 
 def _item_read(item: WarehouseItem, quantity: int, workplace=None) -> WarehouseItemRead:
     return WarehouseItemRead(
+        cartridge_managed=item.cartridge is not None,
         id=item.id,
         sku=item.sku,
         name=item.name,
@@ -464,6 +465,10 @@ def update_item(
 ):
     item = _get_item_or_404(db, item_id)
     data = payload.model_dump(exclude_unset=True)
+    if item.cartridge:
+        controlled = ("category", "tracking_type", "inventory_number", "branch_id", "department_id", "placement", "condition")
+        if any(field in data and data[field] != getattr(item, field) for field in controlled):
+            raise HTTPException(409, "Номер, состояние и местонахождение картриджа меняются через раздел «Картриджи»")
     before = {field: getattr(item, field) for field in data}
     if "branch_id" in data and data["branch_id"] != item.branch_id and "department_id" not in data:
         data["department_id"] = None
@@ -562,6 +567,8 @@ def delete_item(
     item = _get_item_or_404(db, item_id)
     if item.is_archived:
         raise HTTPException(status_code=409, detail="Оборудование уже находится в архиве")
+    if item.cartridge and item.cartridge.state != "written_off":
+        raise HTTPException(409, "Сначала спишите картридж в разделе «Картриджи»")
     if db.query(WorkplaceAssetAssignment.id).filter(
         WorkplaceAssetAssignment.item_id == item_id,
         WorkplaceAssetAssignment.ended_at.is_(None),
@@ -590,6 +597,8 @@ def restore_item(
     current_user: dict = _auth,
 ):
     item = _get_item_or_404(db, item_id)
+    if item.cartridge and item.cartridge.state == "written_off":
+        raise HTTPException(409, "Списанный картридж нельзя восстановить как обычное оборудование")
     if not item.is_archived:
         raise HTTPException(status_code=409, detail="Оборудование не находится в архиве")
     item.is_archived = False
@@ -635,6 +644,8 @@ def create_movement(
 ):
     item = _get_item_or_404(db, item_id)
     current = _current_quantity(db, item_id)
+    if item.cartridge:
+        raise HTTPException(409, "Передачи картриджей оформляются в разделе «Картриджи»")
     delta = movement_delta(payload.movement_type.value, payload.quantity)
     if current + delta < 0:
         raise HTTPException(
@@ -673,6 +684,8 @@ def delete_movement(
     movement = db.get(StockMovement, movement_id)
     if not movement:
         raise HTTPException(status_code=404, detail="Операция не найдена")
+    if db.get(Cartridge, movement.item_id) or movement.cartridge_conversion:
+        raise HTTPException(409, "Нельзя удалить операцию поштучного учёта картриджей")
     current = _current_quantity(db, movement.item_id)
     delta = movement_delta(movement.movement_type.value, movement.quantity)
     if current - delta < 0:

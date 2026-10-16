@@ -13,6 +13,7 @@ import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import { apiError, WORKPLACE_STATUS } from './WorkplacesPage'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
+import MapLocationLink from '../../components/MapLocationLink'
 import WarehouseItemModal from '../../components/WarehouseItemModal'
 
 const fmtDate = (value) => value ? dayjs(value).format('DD.MM.YYYY') : '—'
@@ -353,6 +354,7 @@ export default function WorkplaceCardPage() {
             </Space>
           </div>
         </div>
+        <MapLocationLink entityType="workplace" entityId={workplace.id} />
         <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать штрихкод</Button>
       </header>
 

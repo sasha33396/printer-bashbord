@@ -16,6 +16,8 @@ import EquipmentPhotos from '../../components/EquipmentPhotos'
 import RepairEditorModal from '../../components/RepairEditorModal'
 import RepairReportModal from '../../components/RepairReportModal'
 import DeviceModal from '../../components/DeviceModal'
+import DeviceCartridges from '../../components/DeviceCartridges'
+import MapLocationLink from '../../components/MapLocationLink'
 import { printBarcodeLabel } from '../../utils/barcode'
 import { copyText, deviceWebUrl } from '../../utils/network'
 
@@ -607,6 +609,7 @@ export default function DeviceCardPage() {
             </div>
           </div>
           <Space wrap>
+            <MapLocationLink entityType="device" entityId={device.id} />
             <Button icon={<EditOutlined />} loading={openingEditor} onClick={openDeviceEditor}>Редактировать</Button>
             <Button icon={<HistoryOutlined />} onClick={() => navigate(`/history?entity_type=device&entity_id=${device.id}`)}>
               История движений
@@ -688,6 +691,10 @@ export default function DeviceCardPage() {
       <section className="workplace-section">
         <EquipmentPhotos itemId={device.id} resourcePath={`/devices/${device.id}/photos`} />
       </section>
+
+      {device.device_type !== 'scanner' && <section className="workplace-section">
+        <DeviceCartridges deviceId={device.id} />
+      </section>}
 
       <section className="workplace-section device-history-section">
         <Tabs items={tabItems} />

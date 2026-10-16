@@ -598,7 +598,9 @@ export default function WarehousePage({ archiveOnly = false }) {
       ) : (
         <Card
           title={<Space><Button size="small" icon={<ArrowLeftOutlined />} onClick={() => setCategory(undefined)}>Общий вид</Button><span>{category}</span></Space>}
-          extra={category !== 'Принтеры' && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>Добавить</Button>}
+          extra={category === 'Картриджи'
+            ? <Button type="primary" onClick={() => navigate('/cartridges')}>Поштучный учёт и передачи</Button>
+            : category !== 'Принтеры' && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setItemModal(true) }}>Добавить</Button>}
         >
           {(category === 'Принтеры' ? filteredDevices : filteredItems).length === 0 && !loading ? <Empty description="Нет записей" /> : (
             <Table
