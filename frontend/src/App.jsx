@@ -12,6 +12,7 @@ import {
   DesktopOutlined,
   HistoryOutlined,
   SafetyCertificateOutlined,
+  EnvironmentOutlined,
   HomeOutlined, ToolOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import './styles.css'
@@ -28,6 +29,8 @@ import WorkplaceCardPage from './pages/Workplaces/WorkplaceCardPage'
 import HistoryPage from './pages/History/HistoryPage'
 import DigitalDocumentsPage from './pages/DigitalDocuments/DigitalDocumentsPage'
 import DigitalDocumentCardPage from './pages/DigitalDocuments/DigitalDocumentCardPage'
+import CartridgesPage from './pages/Cartridges/CartridgesPage'
+import MapsPage from './pages/Maps/MapsPage'
 import OverviewPage from './pages/Overview/OverviewPage'
 import RepairsPage from './pages/Repairs/RepairsPage'
 import RecordPanel from './components/RecordPanel'
@@ -58,7 +61,9 @@ const menuItems = [
   { key: '/', icon: <HomeOutlined />, label: <Link to="/">Обзор</Link> },
   { key: '/devices',   icon: <PrinterOutlined />,  label: <Link to="/devices">Принтеры</Link> },
   { key: '/warehouse', icon: <InboxOutlined />,    label: <Link to="/warehouse">Склад</Link> },
+  { key: '/cartridges', icon: <InboxOutlined />, label: <Link to="/cartridges">Картриджи</Link> },
   { key: '/workplaces', icon: <DesktopOutlined />, label: <Link to="/workplaces">Рабочие места</Link> },
+  { key: '/maps', icon: <EnvironmentOutlined />, label: <Link to="/maps">Карта помещений</Link> },
   { key: '/repairs', icon: <ToolOutlined />, label: <Link to="/repairs">Ремонты</Link> },
   { key: '/analytics', icon: <BarChartOutlined />,  label: <Link to="/analytics">Аналитика</Link> },
   { key: '/digital-documents', icon: <SafetyCertificateOutlined />, label: <Link to="/digital-documents/ecp">ЭЦП и МЧД</Link> },
@@ -82,6 +87,7 @@ function AppLayout() {
 
   const selectedKey = '/' + location.pathname.split('/')[1]
   const sectionTitle = { '/': 'Панель управления', '/devices': 'Принтеры', '/warehouse': 'Склад',
+    '/cartridges': 'Картриджи', '/maps': 'Карта помещений',
     '/workplaces': 'Рабочие места', '/repairs': 'Ремонты', '/analytics': 'Аналитика',
     '/digital-documents': 'ЭЦП и МЧД', '/history': 'История движений', '/settings': 'Настройки' }[selectedKey] || 'printer-bashbord'
   const username = getUsername()
@@ -131,9 +137,12 @@ function AppLayout() {
             <Route path="/devices/:id" element={<PrivateRoute><DeviceCardPage /></PrivateRoute>} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/warehouse" element={<PrivateRoute><WarehousePage /></PrivateRoute>} />
+            <Route path="/cartridges" element={<PrivateRoute><CartridgesPage /></PrivateRoute>} />
+            <Route path="/cartridges/:id" element={<PrivateRoute><CartridgesPage /></PrivateRoute>} />
             <Route path="/warehouse/archive" element={<PrivateRoute><WarehousePage archiveOnly /></PrivateRoute>} />
             <Route path="/warehouse/items/:id" element={<PrivateRoute><WarehouseItemPage /></PrivateRoute>} />
             <Route path="/workplaces" element={<PrivateRoute><WorkplacesPage /></PrivateRoute>} />
+            <Route path="/maps" element={<PrivateRoute><MapsPage /></PrivateRoute>} />
             <Route path="/workplaces/:id" element={<PrivateRoute><WorkplaceCardPage /></PrivateRoute>} />
             <Route path="/history" element={<PrivateRoute><HistoryPage /></PrivateRoute>} />
             <Route path="/digital-documents" element={<PrivateRoute><Navigate to="/digital-documents/ecp" replace /></PrivateRoute>} />

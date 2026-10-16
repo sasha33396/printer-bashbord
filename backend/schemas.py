@@ -357,6 +357,7 @@ class WarehouseItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    cartridge_managed: bool = False
     sku: Optional[str] = None
     name: str
     category: str

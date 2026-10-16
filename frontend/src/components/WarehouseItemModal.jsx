@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AutoComplete, Col, Form, Input, InputNumber, Modal, Row, Select, message } from 'antd'
+import { Alert, AutoComplete, Col, Form, Input, InputNumber, Modal, Row, Select, message } from 'antd'
 import api from '../api/api'
 
 const DEFAULT_CATEGORIES = ['Картриджи', 'Мыши', 'Клавиатуры', 'Мониторы', 'Компьютеры', 'Ноутбуки', 'Телефоны', 'Принтеры']
@@ -55,7 +55,10 @@ export default function WarehouseItemModal({
     } catch {
       return
     }
-    if (locationLocked) {
+    if (editing?.cartridge_managed) {
+      for (const field of ['category', 'tracking_type', 'inventory_number', 'branch_id', 'department_id', 'placement', 'condition']) delete values[field]
+    }
+    if (locationLocked || editing?.cartridge_managed) {
       // Location is managed by the workplace; edits only update the asset card.
       delete values.branch_id
       delete values.department_id
@@ -103,6 +106,8 @@ export default function WarehouseItemModal({
       destroyOnClose
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        {editing?.cartridge_managed && <Alert type="info" showIcon style={{ marginBottom: 16 }}
+          message="Состояние и местонахождение меняются через операции в разделе «Картриджи». Номер наклейки закреплён за историей картриджа." />}
         <Row gutter={16}>
           <Col span={16}>
             <Form.Item name="name" label="Наименование" rules={[{ required: true, message: 'Введите наименование' }]}>
@@ -117,6 +122,7 @@ export default function WarehouseItemModal({
           <Col span={12}>
             <Form.Item name="category" label="Категория" rules={[{ required: true, message: 'Укажите категорию' }]}>
               <AutoComplete
+                disabled={editing?.cartridge_managed}
                 options={[...new Set([...DEFAULT_CATEGORIES.filter((value) => value !== 'Принтеры'), ...categories])]
                   .map((value) => ({ value }))}
                 placeholder="Картриджи, компьютеры…"
@@ -134,7 +140,7 @@ export default function WarehouseItemModal({
               extra={locationLocked ? 'Задаётся рабочим местом' : undefined}
             >
               <Select
-                disabled={locationLocked}
+                disabled={locationLocked || editing?.cartridge_managed}
                 allowClear={Boolean(editing)}
                 showSearch
                 optionFilterProp="label"
@@ -154,12 +160,12 @@ export default function WarehouseItemModal({
           </Col>
           <Col span={12}>
             <Form.Item name="placement" label="Местонахождение" rules={[{ required: true }]}>
-              <Select disabled={locationLocked} options={PLACEMENTS.map((value) => ({ value, label: value }))} />
+              <Select disabled={locationLocked || editing?.cartridge_managed} options={PLACEMENTS.map((value) => ({ value, label: value }))} />
             </Form.Item>
           </Col>
           <Col span={12}>
             <Form.Item name="condition" label="Состояние" rules={[{ required: true }]}>
-              <Select options={CONDITIONS.map((value) => ({ value, label: value }))} />
+              <Select disabled={editing?.cartridge_managed} options={CONDITIONS.map((value) => ({ value, label: value }))} />
             </Form.Item>
           </Col>
           {trackingType === 'asset' && <>
@@ -170,7 +176,7 @@ export default function WarehouseItemModal({
                 extra="Введите номер с наклейки. Можно заполнить позже"
                 rules={[{ pattern: /^1-(?!00000)\d{5}$/, message: 'Формат номера: 1-00001' }]}
               >
-                <Input placeholder="1-00001" allowClear />
+                <Input disabled={editing?.cartridge_managed} placeholder="1-00001" allowClear />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -231,7 +237,7 @@ export default function WarehouseItemModal({
                 allowClear
                 showSearch
                 optionFilterProp="label"
-                disabled={locationLocked || !selectedBranch}
+                disabled={locationLocked || editing?.cartridge_managed || !selectedBranch}
                 options={availableDepartments.map((item) => ({ value: item.id, label: item.name }))}
                 placeholder="Выберите отдел"
               />

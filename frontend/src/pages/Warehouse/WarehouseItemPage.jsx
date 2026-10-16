@@ -11,6 +11,7 @@ import dayjs from 'dayjs'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
+import MapLocationLink from '../../components/MapLocationLink'
 import WarehouseItemModal from '../../components/WarehouseItemModal'
 import { equipmentLocation } from '../../utils/equipmentLocation'
 
@@ -253,8 +254,10 @@ export default function WarehouseItemPage({ recordId } = {}) {
           </div>
         </div>
         <Space wrap>
+          {item.tracking_type === 'asset' && !item.is_archived && <MapLocationLink entityType="warehouse_item" entityId={item.id} />}
           {!item.is_archived && <Button icon={<EditOutlined />} loading={openingEditor} onClick={openEditor}>Редактировать</Button>}
-          {item.tracking_type === 'asset' && !item.is_archived && <Button icon={<RetweetOutlined />} onClick={() => setTransferOpen(true)}>
+          {item.cartridge_managed && <Button type="primary" onClick={() => navigate(`/cartridges/${item.id}`)}>Оборот картриджа</Button>}
+          {item.tracking_type === 'asset' && !item.is_archived && !item.cartridge_managed && <Button icon={<RetweetOutlined />} onClick={() => setTransferOpen(true)}>
             {item.workplace ? 'Передать' : 'Установить'}
           </Button>}
           <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать штрихкод</Button>

@@ -62,6 +62,9 @@ on('Fetch.requestPaused', async ({ requestId, request }) => {
   else if (p === '/warehouse/items/1') data = item
   else if (p === '/workplaces') data = [workplace]
   else if (p === '/workplaces/1') data = workplace
+  else if (p === '/cartridges' || p === '/cartridges/operations') data = []
+  else if (p.startsWith('/maps/locate/')) data = { placed: false, position: null }
+  else if (p === '/maps/buildings' || p === '/maps/catalog') data = []
   else if (p === '/repairs') data = [repair]
   else if (p === '/orgs/branches') data = [branch]
   else if (p === '/orgs/departments') data = [department]

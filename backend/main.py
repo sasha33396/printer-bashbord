@@ -5,7 +5,7 @@ from database import SessionLocal, initialize_database
 from equipment_history import initialize_equipment_history
 from routers import (
     analytics, auth, consumables, devices, employees, history, manufacturers,
-    integrations, inventory, orgs, repairs, warehouse, workplaces, digital_documents,
+    integrations, inventory, orgs, repairs, warehouse, workplaces, digital_documents, cartridges, maps,
 )
 
 initialize_database()
@@ -55,6 +55,8 @@ app.include_router(inventory.router, prefix="/api/inventory", tags=["inventory"]
 app.include_router(history.router, prefix="/api/history", tags=["history"])
 app.include_router(integrations.router, prefix="/api/integrations", tags=["integrations"])
 app.include_router(digital_documents.router, prefix="/api/digital-documents", tags=["digital-documents"])
+app.include_router(cartridges.router, prefix="/api/cartridges", tags=["cartridges"])
+app.include_router(maps.router, prefix="/api/maps", tags=["maps"])
 
 
 @app.get("/api/health")

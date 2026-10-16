@@ -12,6 +12,7 @@ const CATEGORY = {
   workplace: { label: 'Рабочее место', color: 'purple' },
   repair: { label: 'Ремонт', color: 'orange' },
   stock: { label: 'Складская операция', color: 'green' },
+  cartridge: { label: 'Картридж', color: 'magenta' },
 }
 
 const EVENT_TYPES = {
@@ -23,6 +24,11 @@ const EVENT_TYPES = {
   repair_created: 'Ремонт добавлен', repair_updated: 'Ремонт изменён', repair_completed: 'Ремонт завершён',
   repair_impossible: 'Ремонт невозможен', repair_deleted: 'Ремонт удалён',
   repair_invoice_attached: 'Счёт прикреплён', repair_invoice_removed: 'Счёт удалён',
+  cartridge_received: 'Картридж поступил', cartridge_registered: 'Поштучный учёт картриджа',
+  cartridge_transfer: 'Передача картриджа', cartridge_install: 'Установка картриджа',
+  cartridge_remove: 'Снятие картриджа', cartridge_send_refill: 'Отправка на заправку',
+  cartridge_return_refill: 'Возврат с заправки', cartridge_defective: 'Неисправность картриджа',
+  cartridge_write_off: 'Списание картриджа',
 }
 
 function details(event) {
@@ -103,7 +109,8 @@ export default function HistoryPage({ embedded = false } = {}) {
   const openEntity = (event) => {
     if (!event.entity_id) return
     if (event.entity_type === 'device') navigate(`/devices/${event.entity_id}`)
-    if (event.entity_type === 'warehouse_item') navigate(`/warehouse/items/${event.entity_id}`)
+    if (event.entity_type === 'warehouse_item') navigate(event.category === 'cartridge'
+      ? `/cartridges/${event.entity_id}` : `/warehouse/items/${event.entity_id}`)
   }
 
   const columns = [

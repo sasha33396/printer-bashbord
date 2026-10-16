@@ -19,7 +19,7 @@ from equipment_history import actor_name, add_device_event, add_item_event
 from inventory_numbers import inventory_number_lock, inventory_number_owner, require_inventory_number
 from network import normalize_ip_address, normalize_mac_address
 from models import (
-    Branch, ConsumableLog, Department, Device, DeviceStatus, DeviceType,
+    Branch, Cartridge, ConsumableLog, Department, Device, DeviceStatus, DeviceType,
     ItemType, Manufacturer, RepairRecord, RepairStatus, RepairType, RepairWorkItem, StockMovement,
     StockMovementType, WarehouseItem, WorkplaceAssetAssignment,
 )
@@ -74,7 +74,7 @@ def lookup_inventory_number(
             entity_type="warehouse_item",
             id=item.id,
             inventory_number=value,
-            path=f"/warehouse/items/{item.id}",
+            path=f"/cartridges/{item.id}" if db.get(Cartridge, item.id) else f"/warehouse/items/{item.id}",
         )
 
     raise HTTPException(status_code=404, detail="Оборудование с таким инвентарным номером не найдено")
@@ -332,6 +332,8 @@ def _import_device(db: Session, inventory_number: str, data: dict) -> str:
     if owner and owner != "device":
         raise ValueError("инвентарный номер уже занят складским оборудованием")
     device = db.query(Device).filter(Device.inventory_number == inventory_number).first()
+    if device and db.query(Cartridge.item_id).filter(Cartridge.device_id == device.id).first():
+        raise ValueError("сначала снимите картриджи перед обновлением принтера из архива")
     is_new = device is None
     _, department_id = _organization(db, data)
     if is_new:
@@ -405,6 +407,8 @@ def _import_warehouse_item(db: Session, inventory_number: str, data: dict) -> tu
     if owner and owner != "warehouse_item":
         raise ValueError("инвентарный номер уже занят устройством")
     item = db.query(WarehouseItem).filter(WarehouseItem.inventory_number == inventory_number).first()
+    if item and db.get(Cartridge, item.id):
+        raise ValueError("картридж с историей оборота нельзя перезаписать архивом оборудования")
     is_new = item is None
     branch_id, department_id = _organization(db, data)
     if is_new:
