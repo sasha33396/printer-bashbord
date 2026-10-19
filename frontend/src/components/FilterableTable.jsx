@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react'
 import { Button, Input, Table, Tooltip } from 'antd'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { cellText, withColumnFilters } from '../utils/tableFilters'
+import { withColumnSorting } from '../utils/tableSorting'
 
 export default function FilterableTable({ columns = [], dataSource = [], locale, searchable = false, ...props }) {
   const [query, setQuery] = useState('')
   const [resetKey, setResetKey] = useState(0)
   const [hasFilters, setHasFilters] = useState(false)
-  const filteredColumns = useMemo(() => withColumnFilters(columns, dataSource), [columns, dataSource])
+  const filteredColumns = useMemo(() => withColumnFilters(withColumnSorting(columns, dataSource), dataSource), [columns, dataSource])
   const visibleRows = useMemo(() => {
     const search = query.trim().toLocaleLowerCase('ru')
     if (!searchable || !search) return dataSource
@@ -39,7 +40,9 @@ export default function FilterableTable({ columns = [], dataSource = [], locale,
     emptyText: 'Нет записей',
     filterTitle: 'Фильтр', filterConfirm: 'Применить', filterReset: 'Сбросить',
     filterSearchPlaceholder: 'Найти значение', filterEmptyText: 'Нет значений',
-    filterCheckAll: 'Выбрать все', ...locale,
+    filterCheckAll: 'Выбрать все',
+    triggerAsc: 'По возрастанию: А → Я, 0 → 9',
+    triggerDesc: 'По убыванию: Я → А, 9 → 0', cancelSort: 'Отменить сортировку', ...locale,
   }} />
   </div>
 }

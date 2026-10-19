@@ -19,11 +19,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 
-DEFAULT_LAPTOP_NAMES = (
-    "Notebook-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
-    "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",
-    "Notebook-sar1", "Ershov-Note",
-)
+DEFAULT_LAPTOP_NAMES = ()
 COUNTERS = (
     "employees_created", "employees_updated", "workplaces_created",
     "computers_created", "computers_updated", "monitors_created", "monitors_updated",
@@ -96,7 +92,7 @@ class Config:
     output_directory: str = "output"
     excluded_logins: list = field(default_factory=lambda: ["administrator", "admin"])
     laptop_names: list = field(default_factory=lambda: list(DEFAULT_LAPTOP_NAMES))
-    computer_matches: dict = field(default_factory=lambda: {"555": {"name": "OP-KRD-1"}})
+    computer_matches: dict = field(default_factory=dict)
 
     def __post_init__(self):
         for key in ("ocs_url", "app_url", "ad_server", "ad_domain", "ocs_timezone", "source_key",

@@ -92,7 +92,7 @@ export default function WarehouseItemModal({
 
   return (
     <Modal
-      title={editing ? 'Редактировать оборудование' : 'Новая позиция'}
+      title={editing?.cartridge_managed ? 'Редактировать картридж' : editing ? 'Редактировать оборудование' : 'Новая позиция'}
       open={open}
       onOk={handleSave}
       onCancel={() => { if (!saving) onClose() }}
@@ -203,7 +203,7 @@ export default function WarehouseItemModal({
           {NETWORK_CATEGORIES.has(selectedCategory) && (
             <Col span={12}>
               <Form.Item name="ip_address" label="IP-адрес">
-                <Input placeholder="172.16.51.73" />
+                <Input placeholder="192.0.2.10" />
               </Form.Item>
             </Col>
           )}

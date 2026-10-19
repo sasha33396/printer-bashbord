@@ -70,11 +70,12 @@ def lookup_inventory_number(
 
     item = db.query(WarehouseItem.id).filter(WarehouseItem.inventory_number == value).first()
     if item:
+        cartridge = db.get(Cartridge, item.id)
         return InventoryLookupRead(
             entity_type="warehouse_item",
             id=item.id,
             inventory_number=value,
-            path=f"/cartridges/{item.id}" if db.get(Cartridge, item.id) else f"/warehouse/items/{item.id}",
+            path=f"/cartridges/{item.id}" if cartridge and not cartridge.is_deleted else f"/warehouse/items/{item.id}",
         )
 
     raise HTTPException(status_code=404, detail="Оборудование с таким инвентарным номером не найдено")

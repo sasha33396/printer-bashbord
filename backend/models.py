@@ -290,12 +290,16 @@ class Cartridge(Base):
     last_refill_sent_at = Column(Date, nullable=True)
     last_refill_returned_at = Column(Date, nullable=True)
     refill_count = Column(Integer, nullable=False, default=0)
+    expected_return_date = Column(Date, nullable=True)
+    installation_page_counter = Column(Integer, nullable=True)
+    is_deleted = Column(Boolean, nullable=False, default=False)
     version = Column(Integer, nullable=False, default=1)
     __mapper_args__ = {"version_id_col": version}
 
     item = relationship("WarehouseItem", back_populates="cartridge")
     employee = relationship("Employee")
     device = relationship("Device")
+    operations = relationship("CartridgeOperation", order_by="(CartridgeOperation.date, CartridgeOperation.id)")
 
 
 class CartridgeOperation(Base):
@@ -317,6 +321,21 @@ class CartridgeOperation(Base):
     contractor = Column(String(255), nullable=True)
     actor = Column(String(255), nullable=False)
     notes = Column(Text, nullable=True)
+    page_counter = Column(Integer, nullable=True)
+    pages_printed = Column(Integer, nullable=True)
+    expected_return_date = Column(Date, nullable=True)
+
+
+class CartridgeCompatibility(Base):
+    __tablename__ = "cartridge_compatibility"
+    __table_args__ = (UniqueConstraint("cartridge_key", "device_key", name="uq_cartridge_compatibility"),)
+
+    id = Column(Integer, primary_key=True)
+    cartridge_model = Column(String(255), nullable=False)
+    cartridge_key = Column(String(255), nullable=False, index=True)
+    manufacturer = Column(String(255), nullable=False)
+    model = Column(String(255), nullable=False)
+    device_key = Column(String(600), nullable=False)
 
 
 class Employee(Base):
@@ -473,6 +492,7 @@ class MapFloor(Base):
     width = Column(Float, nullable=False, default=40)
     height = Column(Float, nullable=False, default=25)
     shapes_json = Column(Text, nullable=False, default="[]")
+    network_json = Column(Text, nullable=False, default='{"nodes":[],"links":[]}')
     background_filename = Column(String(100), nullable=True)
     background_opacity = Column(Float, nullable=False, default=0.4)
     revision = Column(Integer, nullable=False, default=1)
@@ -493,7 +513,30 @@ class MapMarker(Base):
     x = Column(Float, nullable=False)
     y = Column(Float, nullable=False)
     rotation = Column(Float, nullable=False, default=0)
+    room_id = Column(String(80), nullable=True)
+    locked = Column(Boolean, nullable=False, default=False)
+    group_id = Column(String(80), nullable=True)
     floor = relationship("MapFloor")
+
+
+class MapFloorVersion(Base):
+    __tablename__ = "map_floor_versions"
+    __table_args__ = (UniqueConstraint("floor_id", "revision", name="uq_map_floor_version"),)
+
+    id = Column(Integer, primary_key=True)
+    floor_id = Column(Integer, ForeignKey("map_floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    revision = Column(Integer, nullable=False)
+    saved_at = Column(DateTime(timezone=True), nullable=False)
+    saved_by = Column(String(255), nullable=True)
+    label = Column(String(200), nullable=True)
+    document_json = Column(Text, nullable=False)
+    background_filename = Column(String(100), nullable=True)
+
+
+class MapNetworkState(Base):
+    __tablename__ = 'map_network_state'
+    id = Column(Integer, primary_key=True)
+    revision = Column(Integer, nullable=False, default=0)
 
 
 Index(

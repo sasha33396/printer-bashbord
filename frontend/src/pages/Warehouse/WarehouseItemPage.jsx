@@ -233,8 +233,8 @@ export default function WarehouseItemPage({ recordId } = {}) {
 
     {item.is_archived && <Alert
       type="warning" showIcon style={{ marginBottom: 14 }}
-      message="Оборудование находится в архиве"
-      action={<Button size="small" icon={<UndoOutlined />} loading={restoring} onClick={restore}>Восстановить</Button>}
+      message={item.cartridge_deleted ? 'Карточка картриджа удалена. История и номер наклейки сохранены в архиве.' : 'Оборудование находится в архиве'}
+      action={!item.cartridge_deleted && <Button size="small" icon={<UndoOutlined />} loading={restoring} onClick={restore}>Восстановить</Button>}
     />}
 
     <section className="inventory-detail-card">
@@ -256,7 +256,7 @@ export default function WarehouseItemPage({ recordId } = {}) {
         <Space wrap>
           {item.tracking_type === 'asset' && !item.is_archived && <MapLocationLink entityType="warehouse_item" entityId={item.id} />}
           {!item.is_archived && <Button icon={<EditOutlined />} loading={openingEditor} onClick={openEditor}>Редактировать</Button>}
-          {item.cartridge_managed && <Button type="primary" onClick={() => navigate(`/cartridges/${item.id}`)}>Оборот картриджа</Button>}
+          {item.cartridge_managed && !item.cartridge_deleted && <Button type="primary" onClick={() => navigate(`/cartridges/${item.id}`)}>Оборот картриджа</Button>}
           {item.tracking_type === 'asset' && !item.is_archived && !item.cartridge_managed && <Button icon={<RetweetOutlined />} onClick={() => setTransferOpen(true)}>
             {item.workplace ? 'Передать' : 'Установить'}
           </Button>}

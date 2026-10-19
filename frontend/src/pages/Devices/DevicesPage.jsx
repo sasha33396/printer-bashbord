@@ -207,7 +207,7 @@ export default function DevicesPage() {
       dataIndex: 'inventory_number',
       key: 'inventory_number',
       width: 130,
-      sorter: (a, b) => String(a.inventory_number || '').localeCompare(String(b.inventory_number || ''), 'ru', { numeric: true }),
+      sortValue: (row) => row.inventory_number,
       render: (value, row) => <Button type="link" onClick={() => navigate(`/devices/${row.id}`)}>{value || 'Без номера'}</Button>,
     },
     {

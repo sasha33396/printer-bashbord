@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from map_schemas import BuildingInput, FloorInput, FloorSave
 from models import (Cartridge, Department, Device, DeviceStatus, Employee, MapBuilding, MapFloor,
-                    MapMarker, WarehouseItem, Workplace, WorkplaceAssetAssignment, Branch)
+                    MapFloorVersion, MapMarker, WarehouseItem, Workplace, WorkplaceAssetAssignment, Branch)
+from map_versions import remember, snapshot
+from map_network import network_revision, read_network, update_network, ensure_floor_can_be_deleted
 import photo_storage
 from routers.auth import get_current_user
 
@@ -52,6 +54,20 @@ def _remove_background(filename):
         _background_path(filename).unlink(missing_ok=True)
 
 
+def _remove_unused_background(db, filename):
+    if filename and not db.query(MapFloor).filter_by(background_filename=filename).first() \
+            and not db.query(MapFloorVersion).filter_by(background_filename=filename).first():
+        _remove_background(filename)
+
+
+def _version(db, floor_id, revision):
+    _floor(db, floor_id)
+    version = db.query(MapFloorVersion).filter_by(floor_id=floor_id, revision=revision).first()
+    if not version:
+        raise HTTPException(404, "Версия плана не найдена")
+    return version
+
+
 def _catalog(db):
     """Resolve labels live; placements never copy employee or equipment records."""
     records = {}
@@ -69,6 +85,7 @@ def _catalog(db):
             "department_name": item.department.name if item.department else None,
             "employee_name": None, "available": item.tracking_type == "asset" and not item.is_archived,
             "path": f"/warehouse/items/{item.id}", "equipment": [],
+            'ip_address': item.ip_address, 'mac_address': item.mac_address,
         }
     for assignment in assignments:
         item = records.get(("warehouse_item", assignment.item_id))
@@ -84,6 +101,7 @@ def _catalog(db):
             "branch_id": workplace.branch_id, "branch_name": workplace.branch.name if workplace.branch else None,
             "department_name": workplace.department.name if workplace.department else None,
             "employee_name": workplace.employee.full_name if workplace.employee else None,
+            "employee_id": workplace.employee_id,
             "available": not workplace.is_archived,
             "path": f"/workplaces/{workplace.id}", "equipment": workplace_assets.get(workplace.id, []),
         }
@@ -96,7 +114,27 @@ def _catalog(db):
             "branch_id": department.branch_id if department else None,
             "branch_name": department.branch.name if department and department.branch else None,
             "department_name": department.name if department else None, "employee_name": None,
+            "device_type": device.device_type.value,
+            'ip_address': device.ip_address, 'mac_address': device.mac_address,
             "available": device.status != DeviceStatus.decommissioned, "path": f"/devices/{device.id}", "equipment": [],
+        }
+    employee_places = {place.employee_id: place for place in workplaces if place.employee_id and not place.is_archived}
+    for employee in db.query(Employee).options(joinedload(Employee.branch), joinedload(Employee.department)).all():
+        place = employee_places.get(employee.id)
+        if place:
+            parents[('employee', employee.id)] = ('workplace', place.id)
+        records[('employee', employee.id)] = {
+            'entity_type': 'employee', 'entity_id': employee.id, 'name': employee.full_name,
+            'employee_name': employee.full_name, 'inventory_number': None, 'category': 'Сотрудник',
+            'status': 'active' if employee.is_active else 'inactive', 'available': bool(employee.is_active),
+            'branch_id': employee.branch_id, 'branch_name': employee.branch.name if employee.branch else None,
+            'department_name': employee.department.name if employee.department else None,
+            'position_name': employee.position, 'email': employee.email, 'phone': employee.phone,
+            'workplace_id': place.id if place else None, 'workplace_name': place.name if place else None,
+            'placement_target': {'entity_type': 'workplace', 'entity_id': place.id} if place else None,
+            'unplaced_reason': 'Рабочее место ещё не размещено на плане' if place else 'Рабочее место не назначено',
+            'path': f'/workplaces/{place.id}' if place else '/settings',
+            'equipment': workplace_assets.get(place.id, []) if place else [],
         }
     return records, parents
 
@@ -109,9 +147,20 @@ def _positions(db):
         result[(marker.entity_type, marker.entity_id)] = {
             "floor_id": floor.id, "floor_name": floor.name, "revision": floor.revision,
             "building_name": floor.building.name, "building_id": floor.building_id,
+            "branch_id": floor.building.branch_id,
             "x": marker.x, "y": marker.y, "entity_type": marker.entity_type, "entity_id": marker.entity_id,
             "path": f"/maps?floor={floor.id}&focus={marker.entity_type}:{marker.entity_id}",
         }
+    for floor in db.query(MapFloor):
+        for node in json.loads(floor.network_json)['nodes']:
+            if not node.get('entity_type'): continue
+            result[('network', (node['entity_type'], node['entity_id']))] = {
+                'floor_id': floor.id, 'floor_name': floor.name, 'revision': floor.revision,
+                'building_name': floor.building.name, 'building_id': floor.building_id,
+                'branch_id': floor.building.branch_id, 'x': node['x'], 'y': node['y'],
+                'entity_type': 'network', 'entity_id': node['id'],
+                'path': f"/maps?floor={floor.id}&focus=network:{node['id']}",
+            }
     return result
 
 
@@ -122,7 +171,44 @@ def _position(key, positions, parents):
     parent = parents.get(key)
     if parent and parent in positions:
         return {**positions[parent], "inherited": True}
+    fallback = positions.get(('network', key))
+    if fallback: return {**fallback, 'inherited': False}
+    if parent and ('network', parent) in positions:
+        return {**positions[('network', parent)], 'inherited': True}
     return None
+
+
+def _room_catalog(db, entities):
+    result = []
+    departments = {row.id: row.name for row in db.query(Department)}
+    for floor in db.query(MapFloor).options(joinedload(MapFloor.building)):
+        markers = db.query(MapMarker).filter_by(floor_id=floor.id).all()
+        rooms = [shape for shape in json.loads(floor.shapes_json) if shape['kind'] == 'room']
+        memberships = {}
+        for marker in markers:
+            room = next((room for room in rooms if room['id'] == marker.room_id), None)
+            if not room:
+                contained = [room for room in rooms if room['x'] <= marker.x <= room['x'] + room['width']
+                             and room['y'] <= marker.y <= room['y'] + room['height']]
+                room = min(contained, key=lambda room: room['width'] * room['height']) if contained else None
+            memberships[marker.id] = room['id'] if room else None
+        for room in rooms:
+            members = [entities.get((marker.entity_type, marker.entity_id), {}) for marker in markers
+                       if memberships[marker.id] == room['id']]
+            name = ' · '.join(value for value in (f"Кабинет {room['number']}" if room.get('number') else '', room.get('label')) if value) or 'Кабинет'
+            result.append({
+                'entity_type': 'room', 'entity_id': f"{floor.id}:{room['id']}", 'shape_id': room['id'],
+                'name': name, 'inventory_number': room.get('number'), 'category': 'Кабинет', 'available': True,
+                'branch_id': floor.building.branch_id, 'branch_name': floor.building.branch.name if floor.building.branch else None,
+                'department_name': departments.get(room.get('department_id')),
+                'employee_name': ', '.join(member['employee_name'] for member in members if member.get('employee_name')),
+                'equipment': [asset for member in members for asset in [member, *member.get('equipment', [])]],
+                'position': {'floor_id': floor.id, 'floor_name': floor.name, 'building_id': floor.building_id,
+                             'building_name': floor.building.name, 'entity_type': 'room', 'entity_id': room['id'],
+                             'x': room['x'], 'y': room['y'], 'inherited': False,
+                             'path': f"/maps?floor={floor.id}&focus=room:{room['id']}"},
+            })
+    return result
 
 
 def _read_floor(db, floor):
@@ -142,9 +228,11 @@ def _read_floor(db, floor):
         "branch_id": floor.building.branch_id, "name": floor.name, "width": floor.width, "height": floor.height,
         "revision": floor.revision, "updated_at": floor.updated_at, "updated_by": floor.updated_by,
         "shapes": json.loads(floor.shapes_json), "has_background": bool(floor.background_filename),
+        'network': json.loads(floor.network_json), 'network_revision': network_revision(db),
         "background_opacity": floor.background_opacity,
         "markers": [{"entity_type": marker.entity_type, "entity_id": marker.entity_id, "x": marker.x,
-                     "y": marker.y, "rotation": marker.rotation,
+                     "y": marker.y, "rotation": marker.rotation, "room_id": marker.room_id,
+                     "locked": marker.locked, "group_id": marker.group_id,
                      "entity": marker_entity(marker)} for marker in markers],
     }
 
@@ -175,6 +263,9 @@ def update_building(building_id: int, payload: BuildingInput, db: Session = Depe
         raise HTTPException(422, "Филиал не найден")
     if payload.branch_id != building.branch_id and db.query(MapMarker).join(MapFloor).filter(MapFloor.building_id == building.id).first():
         raise HTTPException(409, "Сначала снимите объекты с планов перед сменой филиала здания")
+    if payload.branch_id != building.branch_id and any(node.get('entity_type') for floor in db.query(MapFloor).filter_by(building_id=building.id)
+                                                     for node in json.loads(floor.network_json)['nodes']):
+        raise HTTPException(409, 'Сначала снимите привязки сетевых узлов к оборудованию перед сменой филиала здания')
     for key, value in payload.model_dump().items():
         setattr(building, key, value)
     db.commit()
@@ -196,6 +287,8 @@ def create_floor(building_id: int, payload: FloorInput, db: Session = Depends(ge
     floor = MapFloor(building_id=building_id, **payload.model_dump(), updated_by=actor["username"])
     db.add(floor)
     db.commit()
+    remember(db, floor, 'Первый план')
+    db.commit()
     return _read_floor(db, floor)
 
 
@@ -203,7 +296,15 @@ def create_floor(building_id: int, payload: FloorInput, db: Session = Depends(ge
 def catalog(db: Session = Depends(get_db)):
     entities, parents = _catalog(db)
     positions = _positions(db)
-    return [{**entity, "position": _position(key, positions, parents)} for key, entity in entities.items() if entity["available"]]
+    return [{**entity, "position": _position(key, positions, parents),
+             'placement_target': {'entity_type': parents[key][0], 'entity_id': parents[key][1]} if key in parents else entity.get('placement_target')}
+            for key, entity in entities.items()
+            if entity["available"] or entity['entity_type'] == 'employee'] + _room_catalog(db, entities)
+
+
+@router.get('/network')
+def network(db: Session = Depends(get_db)):
+    return read_network(db)
 
 
 @router.get("/locate/{entity_type}/{entity_id}")
@@ -238,6 +339,41 @@ def get_background(floor_id: int, db: Session = Depends(get_db)):
     return FileResponse(path, media_type=photo_storage.IMAGE_TYPES[path.suffix], headers={"Cache-Control": "no-store"})
 
 
+@router.get('/floors/{floor_id}/versions')
+def versions(floor_id: int, page: int = Query(default=1, ge=1), page_size: int = Query(default=20, ge=1, le=100),
+             db: Session = Depends(get_db)):
+    floor = _floor(db, floor_id)
+    query = db.query(MapFloorVersion).filter_by(floor_id=floor_id)
+    # Existing installations get their first immutable snapshot on the next save.
+    if not query.count():
+        return {'total': 1, 'items': [{'revision': floor.revision, 'saved_at': floor.updated_at,
+                'saved_by': floor.updated_by, 'label': 'Текущий план'}] if page == 1 else []}
+    return {'total': query.count(), 'items': [
+        {'revision': row.revision, 'saved_at': row.saved_at, 'saved_by': row.saved_by, 'label': row.label}
+        for row in query.order_by(MapFloorVersion.revision.desc()).offset((page - 1) * page_size).limit(page_size)]}
+
+
+@router.get('/floors/{floor_id}/versions/{revision}')
+def get_version(floor_id: int, revision: int, db: Session = Depends(get_db)):
+    floor = _floor(db, floor_id)
+    version = db.query(MapFloorVersion).filter_by(floor_id=floor_id, revision=revision).first()
+    if not version and floor.revision == revision:
+        return {'document': snapshot(db, floor), 'has_background': bool(floor.background_filename), 'revision': revision}
+    version = version or _version(db, floor_id, revision)
+    return {'document': json.loads(version.document_json), 'has_background': bool(version.background_filename), 'revision': revision}
+
+
+@router.get('/floors/{floor_id}/versions/{revision}/background')
+def version_background(floor_id: int, revision: int, db: Session = Depends(get_db)):
+    floor = _floor(db, floor_id)
+    version = db.query(MapFloorVersion).filter_by(floor_id=floor_id, revision=revision).first()
+    filename = version.background_filename if version else floor.background_filename if floor.revision == revision else None
+    if not filename or not _background_path(filename).is_file():
+        raise HTTPException(404, 'Подложка версии не найдена')
+    path = _background_path(filename)
+    return FileResponse(path, media_type=photo_storage.IMAGE_TYPES[path.suffix], headers={'Cache-Control': 'no-store'})
+
+
 @router.put("/floors/{floor_id}")
 async def save_floor(floor_id: int, document: str = Form(...), file: UploadFile | None = File(default=None),
                      db: Session = Depends(get_db), actor: dict = Depends(get_current_user)):
@@ -248,10 +384,29 @@ async def save_floor(floor_id: int, document: str = Form(...), file: UploadFile 
     except ValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
     floor = _floor(db, floor_id)
+    if payload.network is None:
+        # Older clients preserve the topology, but cannot crop its nodes or bends.
+        try:
+            payload = FloorSave.model_validate({**payload.model_dump(), 'network': json.loads(floor.network_json)})
+        except ValidationError as exc:
+            raise HTTPException(422, str(exc)) from exc
     old_background = floor.background_filename
     new_background = None
     committed = False
     try:
+        background = old_background
+        if payload.background_revision is not None:
+            if payload.background_revision == floor.revision:
+                background = floor.background_filename
+            else:
+                background = _version(db, floor_id, payload.background_revision).background_filename
+            if background and not _background_path(background).is_file():
+                raise HTTPException(409, 'Файл подложки этой версии отсутствует')
+        for room in payload.shapes:
+            if room.kind == 'room' and room.department_id:
+                department = db.get(Department, room.department_id)
+                if not department or (floor.building.branch_id and department.branch_id != floor.building.branch_id):
+                    raise HTTPException(422, 'Отдел кабинета должен относиться к филиалу здания')
         if file:
             content = await file.read(MAX_BACKGROUND_BYTES + 1)
             if len(content) > MAX_BACKGROUND_BYTES:
@@ -263,16 +418,18 @@ async def save_floor(floor_id: int, document: str = Form(...), file: UploadFile 
             path = _background_path(new_background)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
+        remember(db, floor)
         updated = db.query(MapFloor).filter(MapFloor.id == floor_id, MapFloor.revision == payload.revision).update({
             MapFloor.name: payload.name, MapFloor.width: payload.width, MapFloor.height: payload.height,
             MapFloor.shapes_json: json.dumps([shape.model_dump(exclude_none=True) for shape in payload.shapes], ensure_ascii=False),
             MapFloor.background_opacity: payload.background_opacity,
-            MapFloor.background_filename: new_background or (None if payload.remove_background else old_background),
+            MapFloor.background_filename: new_background or (None if payload.remove_background else background),
             MapFloor.revision: payload.revision + 1, MapFloor.updated_at: datetime.now(timezone.utc), MapFloor.updated_by: actor["username"],
         }, synchronize_session=False)
         if not updated:
             _conflict()
         entities, _ = _catalog(db)
+        update_network(db, floor, payload.network, payload.network_revision, entities)
         existing = {(row.entity_type, row.entity_id): row for row in db.query(MapMarker).all()}
         desired = {(row.entity_type, row.entity_id) for row in payload.markers}
         transfers = {}
@@ -290,6 +447,7 @@ async def save_floor(floor_id: int, document: str = Form(...), file: UploadFile 
                     raise HTTPException(409, "Объект уже размещён на другом этаже. Подтвердите перенос по актуальному плану.")
                 transfers[previous.floor_id] = marker.from_revision
         for source_id, revision in sorted(transfers.items()):
+            remember(db, _floor(db, source_id))
             changed = db.query(MapFloor).filter(MapFloor.id == source_id, MapFloor.revision == revision).update({
                 MapFloor.revision: revision + 1, MapFloor.updated_at: datetime.now(timezone.utc), MapFloor.updated_by: actor["username"],
             }, synchronize_session=False)
@@ -307,10 +465,14 @@ async def save_floor(floor_id: int, document: str = Form(...), file: UploadFile 
             row.floor_id = floor_id
             row.entity_name = entities.get(key, {}).get("name", row.entity_name or "Удалённый объект")
             row.x, row.y, row.rotation = marker.x, marker.y, marker.rotation
+            row.room_id, row.locked, row.group_id = marker.room_id, marker.locked, marker.group_id
+        db.flush()
+        for changed_floor_id in [floor_id, *transfers]:
+            changed_floor = _floor(db, changed_floor_id)
+            db.refresh(changed_floor)
+            remember(db, changed_floor, payload.version_label if changed_floor_id == floor_id else 'Перенос отметки на другой этаж')
         db.commit()
         committed = True
-        if old_background and (new_background or payload.remove_background):
-            _remove_background(old_background)
         return _read_floor(db, floor)
     except IntegrityError as exc:
         db.rollback()
@@ -326,11 +488,14 @@ async def save_floor(floor_id: int, document: str = Form(...), file: UploadFile 
 @router.delete("/floors/{floor_id}", status_code=204)
 def delete_floor(floor_id: int, revision: int = Query(ge=1), db: Session = Depends(get_db)):
     floor = _floor(db, floor_id)
-    background = floor.background_filename
+    backgrounds = {floor.background_filename, *(row.background_filename for row in db.query(MapFloorVersion).filter_by(floor_id=floor_id))}
     # Acquire the write transaction and check the editor's version before removing markers.
     if not db.query(MapFloor).filter(MapFloor.id == floor_id, MapFloor.revision == revision).update({MapFloor.revision: revision + 1}):
         _conflict()
+    ensure_floor_can_be_deleted(db, floor)
     db.query(MapMarker).filter(MapMarker.floor_id == floor_id).delete(synchronize_session=False)
+    db.query(MapFloorVersion).filter_by(floor_id=floor_id).delete(synchronize_session=False)
     db.query(MapFloor).filter(MapFloor.id == floor_id).delete(synchronize_session=False)
     db.commit()
-    _remove_background(background)
+    for background in backgrounds:
+        _remove_unused_background(db, background)

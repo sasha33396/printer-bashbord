@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Alert, Button, Card, DatePicker, Descriptions, Form, Input, Modal, Select, Space, Spin, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Checkbox, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Tabs, Tag, Typography, message } from 'antd'
+import { DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../api/api'
 import Table from '../../components/FilterableTable'
 import { printBarcodeLabel } from '../../utils/barcode'
-import { actionAllowed, cartridgeSummary, CARTRIDGE_STATES, CARTRIDGE_OPERATIONS, STATE_COLORS } from '../../utils/cartridges'
+import { actionAllowed, cartridgeSummary, cartridgeCompatibility, cartridgeMatchesAttention, installationCandidates, CARTRIDGE_STATES, CARTRIDGE_OPERATIONS, STATE_COLORS } from '../../utils/cartridges'
+import CartridgeCompatibilityModal from '../../components/CartridgeCompatibilityModal'
+import WarehouseItemModal from '../../components/WarehouseItemModal'
+import { CartridgeResourceHistory, CartridgeTimeline, counterText, RefillDeadline, sinceText } from '../../components/CartridgeTracking'
 
 const fmtDate = (value) => value ? dayjs(value).format('DD.MM.YYYY') : '—'
 const failure = (error) => {
@@ -24,6 +28,8 @@ const operationColumns = [
   { title: 'Принтер', dataIndex: 'device_name', render: (value) => value || '—' },
   { title: 'Подрядчик', dataIndex: 'contractor', render: (value) => value || '—' },
   { title: 'Кто оформил', dataIndex: 'actor' },
+  { title: 'Счётчик', dataIndex: 'page_counter', render: counterText },
+  { title: 'Напечатано, стр.', dataIndex: 'pages_printed', render: (value) => value == null ? '—' : counterText(value) },
   { title: 'Примечание', dataIndex: 'notes' },
 ]
 
@@ -58,17 +64,23 @@ function DestinationFields({ form, branches, departments, employees, installing 
 function CartridgeModal({ mode, initialIds, data, onClose, onSaved, initialDevice }) {
   const [form] = Form.useForm()
   const [saving, setSaving] = useState(false)
+  const [includeUnknown, setIncludeUnknown] = useState(true)
   const deviceId = Form.useWatch('device_id', form)
   const slot = Form.useWatch('slot', form)
   const sourceId = Form.useWatch('source_item_id', form)
   const createBranch = Form.useWatch('branch_id', form)
   const selectedIds = Form.useWatch('item_ids', form) || []
+  const incomingId = Form.useWatch('item_id', form)
   const { items, branches, departments, employees, devices, warehouse } = data
   const legacy = warehouse.filter((item) => item.category === 'Картриджи' && !item.is_archived && !item.cartridge_managed)
   const outgoing = items.find((item) => item.device_id === deviceId && item.slot === slot)
+  const device = devices.find((row) => row.id === deviceId)
+  const incoming = items.find((row) => row.item_id === incomingId)
+  const candidates = installationCandidates(items, device, includeUnknown)
 
   useEffect(() => {
     if (!mode) return
+    setIncludeUnknown(true)
     form.resetFields()
     const first = items.find((item) => item.item_id === initialIds[0])
     form.setFieldsValue({
@@ -76,15 +88,23 @@ function CartridgeModal({ mode, initialIds, data, onClose, onSaved, initialDevic
       item_ids: initialIds, item_id: first?.state === 'ready' ? first.item_id : undefined,
       destination: { holder_type: mode === 'install' ? 'department' : 'warehouse', branch_id: first?.branch_id, department_id: first?.department_id },
       device_id: initialDevice,
+      expected_return_date: first?.expected_return_date ? dayjs(first.expected_return_date) : undefined,
     })
   }, [mode, initialIds, form]) // Reloaded data must not reset an open form.
 
   useEffect(() => {
     if (mode !== 'install' || !deviceId) return
     const device = devices.find((row) => row.id === deviceId)
-    form.setFieldsValue({ destination: { holder_type: 'department', employee_id: undefined,
+    const slots = items.filter((row) => row.device_id === deviceId).map((row) => row.slot)
+    form.setFieldsValue({ slot: slots.length === 1 ? slots[0] : 'Основной', destination: { holder_type: 'department', employee_id: undefined,
       branch_id: device?.department?.branch?.id, department_id: device?.department_id } })
-  }, [deviceId, mode, devices, form])
+  }, [deviceId, mode, devices, items, form])
+
+  useEffect(() => {
+    if (mode === 'install' && deviceId && incomingId && !candidates.some((row) => row.item_id === incomingId)) {
+      form.setFieldValue('item_id', undefined)
+    }
+  }, [mode, deviceId, incomingId, includeUnknown, items, form])
 
   const save = async () => {
     let values
@@ -101,12 +121,15 @@ function CartridgeModal({ mode, initialIds, data, onClose, onSaved, initialDevic
         await api.post('/cartridges', { ...values, date, inventory_numbers, department_id: values.department_id ?? null })
       } else if (mode === 'install') {
         await api.post('/cartridges/install', { item_id: values.item_id, device_id: values.device_id, slot: values.slot,
-          removed_item_id: outgoing?.item_id ?? null, date, destination, notes: values.notes })
+          removed_item_id: outgoing?.item_id ?? null, date, destination, notes: values.notes, page_counter: values.page_counter ?? null })
       } else {
         await api.post('/cartridges/actions', { item_ids: values.item_ids, operation: mode, date,
           ...(['transfer', 'return_refill', 'remove'].includes(mode) ? { destination } : {}),
           ...(mode === 'send_refill' ? { contractor: values.contractor } : {}),
-          ...(mode === 'return_refill' ? { result: values.result } : {}), notes: values.notes })
+          ...(mode === 'return_refill' ? { result: values.result } : {}),
+          ...(['send_refill', 'refill_deadline'].includes(mode) ? { expected_return_date: values.expected_return_date?.format('YYYY-MM-DD') ?? null } : {}),
+          ...(mode === 'remove' ? { page_counters: Object.fromEntries(Object.entries(values.page_counters || {})
+            .filter(([key, value]) => values.item_ids.includes(Number(key)) && value != null)) } : {}), notes: values.notes })
       }
       message.success('Операция сохранена')
       onSaved()
@@ -152,13 +175,41 @@ function CartridgeModal({ mode, initialIds, data, onClose, onSaved, initialDevic
           ? `Будет снят ${outgoing.inventory_number} (${outgoing.name}) и отмечен как пустой у текущего получателя.`
           : 'На выбранном месте картридж ещё не зарегистрирован.'} />
         <Form.Item name="item_id" label="Устанавливаемый картридж" rules={[{ required: true }]}>
-          <Select showSearch optionFilterProp="label" options={items.filter((row) => row.state === 'ready').map((row) => ({ value: row.item_id, label: `${row.inventory_number} — ${row.name} / ${row.location}` }))} />
+          <Select disabled={!deviceId} showSearch optionFilterProp="label" notFoundContent="Подходящих запасных картриджей нет"
+            options={candidates.map((row) => ({ value: row.item_id, label: `${row.inventory_number} — ${row.name} / ${row.location}${cartridgeCompatibility(row, device) === 'unknown' ? ' · совместимость не задана' : ''}` }))} />
         </Form.Item>
+        <Checkbox checked={includeUnknown} onChange={(event) => setIncludeUnknown(event.target.checked)} style={{ marginBottom: 12 }}>
+          Показывать модели без настроенной совместимости
+        </Checkbox>
+        {incoming && cartridgeCompatibility(incoming, device) === 'unknown' && <Alert type="warning" showIcon style={{ marginBottom: 12 }}
+          message="Совместимость выбранного картриджа не задана. Проверьте модель перед установкой." />}
+        <Form.Item name="page_counter" label="Счётчик принтера при установке / замене"
+          extra="Необязательно. При замене это же показание завершит цикл снимаемого картриджа.">
+          <InputNumber min={0} max={2147483647} precision={0} style={{ width: '100%' }} />
+        </Form.Item>
+        {device?.page_counter != null && <Space wrap style={{ marginBottom: 16 }}>
+          <Typography.Text type="secondary">Последнее сохранённое показание: {counterText(device.page_counter)}
+            {device.counter_checked_at ? ` (${dayjs(device.counter_checked_at).format('DD.MM.YYYY HH:mm')})` : ''}</Typography.Text>
+          <Button size="small" onClick={() => form.setFieldValue('page_counter', device.page_counter)}>Подставить</Button>
+        </Space>}
       </> : <>
         <Form.Item name="item_ids" label="Картриджи" rules={[{ required: true, type: 'array', min: 1 }]}>
           <Select mode="multiple" showSearch optionFilterProp="label" options={items.filter((row) => actionAllowed(mode, row)).map((row) => ({ value: row.item_id, label: `${row.inventory_number} — ${row.name} / ${row.location}` }))} />
         </Form.Item>
         {mode === 'send_refill' && <Form.Item name="contractor" label="Подрядчик по заправке" rules={[{ required: true, whitespace: true }]}><Input maxLength={255} /></Form.Item>}
+        {['send_refill', 'refill_deadline'].includes(mode) && <Form.Item name="expected_return_date" label="Ожидаемая дата возврата"
+          extra="Необязательно. Просрочка появится со следующего дня после указанной даты. Пустое поле убирает срок.">
+          <DatePicker format="DD.MM.YYYY" />
+        </Form.Item>}
+        {mode === 'remove' && selectedIds.map((itemId) => {
+          const cartridge = items.find((row) => row.item_id === itemId)
+          const printer = devices.find((row) => row.id === cartridge?.device_id)
+          return <Form.Item key={itemId} name={['page_counters', String(itemId)]}
+            label={`Счётчик при снятии ${cartridge?.inventory_number || itemId} — ${cartridge?.device_name || 'Принтер'}`}
+            extra={`При установке: ${counterText(cartridge?.installation_page_counter)}. Поле необязательно.`}>
+            <InputNumber min={0} max={2147483647} precision={0} style={{ width: '100%' }} placeholder={printer?.page_counter != null ? `Последнее сохранённое показание: ${printer.page_counter}` : undefined} />
+          </Form.Item>
+        })}
         {mode === 'return_refill' && <Form.Item name="result" label="Результат возврата" rules={[{ required: true }]}>
           <Select options={[{ value: 'ready', label: 'Заправлен, запасной' }, { value: 'defective', label: 'Возвращён неисправным' }]} />
         </Form.Item>}
@@ -179,6 +230,12 @@ export default function CartridgesPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [state, setState] = useState()
+  const [attention, setAttention] = useState()
+  const [installedDays, setInstalledDays] = useState(30)
+  const [compatibilityOpen, setCompatibilityOpen] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
+  const [editing, setEditing] = useState(null)
+  const [editingId, setEditingId] = useState(null)
   const [grouping, setGrouping] = useState('holder')
   const [mode, setMode] = useState(null)
   const [selected, setSelected] = useState([])
@@ -203,10 +260,12 @@ export default function CartridgesPage() {
     if (id && item.item_id !== Number(id)) return false
     if (deviceFilter && item.device_id !== deviceFilter) return false
     if (state && item.state !== state) return false
+    if (!cartridgeMatchesAttention(item, attention, installedDays)) return false
     const text = search.trim().toLowerCase()
     return !text || [item.inventory_number, item.name, item.location, item.contractor, item.compatible_printers].some((value) => value?.toLowerCase().includes(text))
-  }), [data.items, id, deviceFilter, state, search])
+  }), [data.items, id, deviceFilter, state, search, attention, installedDays])
   const history = data.operations.filter((row) => (!id || row.item_id === Number(id)) && (!deviceFilter || row.device_id === deviceFilter))
+  const overdueCount = data.items.filter((item) => item.state === 'refilling' && item.refill_overdue).length
   const start = (operation, itemId) => {
     const ids = itemId ? [itemId] : id ? [Number(id)] : selected
     setInitialIds(ids.filter((itemId) => {
@@ -219,21 +278,70 @@ export default function CartridgesPage() {
     try { await printBarcodeLabel({ path: `/cartridges/${item.item_id}`, inventoryNumber: item.inventory_number, title: 'Картридж', subtitle: item.name }) }
     catch (error) { message.error(error.message) }
   }
+  const edit = async (item) => {
+    setEditingId(item.item_id)
+    try {
+      const response = await api.get(`/warehouse/items/${item.item_id}`)
+      if (response.data.is_archived) {
+        message.warning('Архивную карточку нельзя редактировать')
+        return
+      }
+      setEditing(response.data)
+    } catch (error) { failure(error) } finally { setEditingId(null) }
+  }
+  const remove = (item) => {
+    Modal.confirm({
+      title: `Удалить картридж ${item.inventory_number}?`,
+      content: <div><p>{item.name}</p>
+        <p>Карточка исчезнет из списка и остатков. Привязка к принтеру и текущему получателю будет снята.</p>
+        <p>История, фотографии и номер наклейки сохранятся в архиве склада. Номер останется занят.</p>
+      </div>,
+      okText: 'Удалить', cancelText: 'Отмена', okButtonProps: { danger: true },
+      onOk: async () => {
+        setDeletingId(item.item_id)
+        try {
+          await api.delete(`/cartridges/${item.item_id}`, { params: { version: item.version } })
+          message.success('Карточка картриджа удалена')
+          setSelected((ids) => ids.filter((key) => key !== item.item_id))
+          if (id) navigate('/cartridges')
+          await load()
+        } catch (error) { failure(error); throw error }
+        finally { setDeletingId(null) }
+      },
+    })
+  }
   const columns = [
     { title: 'Номер наклейки', dataIndex: 'inventory_number', render: (value, row) => <Button type="link" onClick={() => navigate(`/cartridges/${row.item_id}`)}>{value}</Button> },
     { title: 'Модель', dataIndex: 'name' },
-    { title: 'Состояние', dataIndex: 'state', render: (value, row) => <Space>
+    { title: 'Состояние', dataIndex: 'state', sortValue: (row) => CARTRIDGE_STATES[row.state], render: (value, row) => <Space>
       <Tag color={STATE_COLORS[value]}>{CARTRIDGE_STATES[value]}</Tag>
+      {row.state_since && <Typography.Text type="secondary">с {sinceText(row.state_since, row.state_days)}</Typography.Text>}
       {value === 'ready' && <Button size="small" onClick={() => start('install', row.item_id)}>Установить</Button>}
     </Space> },
-    { title: 'Местонахождение / получатель', dataIndex: 'location' },
-    { title: 'Совместимые принтеры', dataIndex: 'compatible_printers' },
+    { title: 'Местонахождение / получатель', dataIndex: 'location', sortValue: (row) => row.location, render: (value, row) => <div>{value}
+      <div><Typography.Text type="secondary">{sinceText(row.location_since, row.location_days)}</Typography.Text></div></div> },
+    { title: 'Совместимые принтеры', dataIndex: 'compatible_models', filterValue: (row) => (row.compatible_models || []).map((model) => `${model.manufacturer} ${model.model}`).join(', ') || row.compatible_printers || 'Не задано',
+      render: (value, row) => value?.length ? value.map((model) => `${model.manufacturer} ${model.model}`).join(', ') : row.compatible_printers || 'Не задано' },
+    { title: 'Последняя передача', dataIndex: 'last_transferred_at', render: fmtDate },
     { title: 'Последняя установка', dataIndex: 'last_installed_at', render: fmtDate },
     { title: 'Последнее снятие', dataIndex: 'last_removed_at', render: fmtDate },
     { title: 'Отправлен на заправку', dataIndex: 'last_refill_sent_at', render: fmtDate },
     { title: 'Возвращён', dataIndex: 'last_refill_returned_at', render: fmtDate },
+    { title: 'Срок возврата', key: 'deadline', sortValue: (row) => row.state === 'refilling' ? row.expected_return_date : null,
+      filterValue: (row) => row.state !== 'refilling' ? '—'
+      : row.refill_overdue ? 'Просрочено' : row.expected_return_date ? fmtDate(row.expected_return_date) : 'Срок не задан',
+      render: (_, row) => <RefillDeadline item={row} /> },
+    { title: 'Последний ресурс, стр.', dataIndex: 'last_cycle_pages', render: (value) => value == null ? 'Неизвестно' : counterText(value) },
     { title: 'Заправок', dataIndex: 'refill_count' },
-    { title: '', key: 'actions', render: (_, row) => <Button onClick={() => print(row)}>Этикетка</Button> },
+    { title: '', key: 'actions', fixed: 'right', width: 190, align: 'right', render: (_, row) => <Space size={4}>
+      <Button size="small" type="primary" onClick={() => navigate(`/cartridges/${row.item_id}`)}>Открыть</Button>
+      <Button size="small" icon={<EditOutlined />} title={row.state === 'written_off' ? 'Списанный картридж нельзя редактировать' : 'Редактировать картридж'}
+        aria-label="Редактировать картридж" loading={editingId === row.item_id}
+        disabled={row.state === 'written_off' || editingId != null || deletingId != null} onClick={() => edit(row)} />
+      <Button size="small" danger icon={<DeleteOutlined />} title="Удалить картридж" aria-label="Удалить картридж"
+        loading={deletingId === row.item_id} disabled={editingId != null || (deletingId != null && deletingId !== row.item_id)}
+        onClick={() => remove(row)} />
+    </Space> },
   ]
   const summaryColumns = [
     { title: 'Получатель / местонахождение', dataIndex: 'location' }, { title: 'Модель', dataIndex: 'name' },
@@ -247,27 +355,49 @@ export default function CartridgesPage() {
       {(id || deviceFilter) && <Button onClick={() => navigate('/cartridges')}>Все картриджи</Button>}
       <Typography.Title level={3} style={{ margin: 0 }}>{id ? `${current.inventory_number} — ${current.name}` : 'Картриджи'}</Typography.Title>
       {!id && <Button type="primary" onClick={() => { setInitialIds([]); setMode('create') }}>Добавить / разобрать остаток</Button>}
+      <Button onClick={() => setCompatibilityOpen(true)}>Совместимость моделей</Button>
       <Button onClick={load} loading={loading}>Обновить</Button>
+      {current && <Button icon={<EditOutlined />} loading={editingId === current.item_id}
+        disabled={current.state === 'written_off' || editingId != null || deletingId != null} onClick={() => edit(current)}>Редактировать</Button>}
+      {current && <Button onClick={() => print(current)}>Этикетка</Button>}
+      {current && <Button danger loading={deletingId === current.item_id} onClick={() => remove(current)}>Удалить карточку</Button>}
     </Space>
     {current && <Card style={{ marginBottom: 16 }}><Descriptions column={{ xs: 1, md: 2 }} items={[
-      { key: 'state', label: 'Состояние', children: CARTRIDGE_STATES[current.state] },
-      { key: 'location', label: 'Местонахождение', children: current.location },
-      { key: 'compatible', label: 'Совместимые принтеры', children: current.compatible_printers || '—' },
+      { key: 'state', label: 'Состояние', children: `${CARTRIDGE_STATES[current.state]} · ${sinceText(current.state_since, current.state_days)}` },
+      { key: 'location', label: 'Местонахождение', children: <>{current.location}<div>{sinceText(current.location_since, current.location_days)}</div></> },
+      { key: 'transfer', label: 'Последняя передача', children: fmtDate(current.last_transferred_at) },
+      { key: 'deadline', label: 'Ожидаемый возврат', children: <RefillDeadline item={current} /> },
+      { key: 'compatible', label: 'Совместимые модели', children: current.compatible_models?.length
+        ? current.compatible_models.map((model) => `${model.manufacturer} ${model.model}`).join(', ') : 'Совместимость не настроена' },
+      { key: 'legacy-compatible', label: 'Описание совместимости', children: current.compatible_printers || '—' },
+      { key: 'initial-counter', label: 'Счётчик при текущей установке', children: counterText(current.installation_page_counter) },
+      { key: 'last-resource', label: 'Ресурс последнего цикла', children: current.last_cycle_pages == null ? 'Неизвестно' : `${counterText(current.last_cycle_pages)} стр.` },
+      { key: 'total-resource', label: 'Учтённый ресурс', children: current.total_pages == null ? 'Нет циклов с двумя показаниями' : `${counterText(current.total_pages)} стр. · циклов с показаниями: ${current.measured_cycles}` },
       { key: 'refills', label: 'Успешных заправок', children: current.refill_count },
       { key: 'notes', label: 'Примечание', children: current.notes || '—' },
       { key: 'card', label: 'Карточка оборудования', children: <Button type="link" onClick={() => navigate(`/warehouse/items/${current.item_id}`)}>Данные и фотографии</Button> },
     ]} /></Card>}
     <Space wrap style={{ marginBottom: 16 }}>
-      {['transfer', 'install', 'remove', 'send_refill', 'return_refill', 'defective', 'write_off'].map((operation) => <Button
+      {['transfer', 'install', 'remove', 'send_refill', 'return_refill', 'refill_deadline', 'defective', 'write_off'].map((operation) => <Button
         key={operation} danger={operation === 'write_off'} disabled={Boolean(id && !actionAllowed(operation, current))}
         onClick={() => start(operation)}>{CARTRIDGE_OPERATIONS[operation]}</Button>)}
     </Space>
     {!id && <Space wrap style={{ display: 'flex', marginBottom: 16 }}>
       <Input.Search allowClear placeholder="Номер, модель, сотрудник, отдел" value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 320 }} />
       <Select allowClear placeholder="Все состояния" value={state} onChange={setState} style={{ width: 220 }} options={Object.entries(CARTRIDGE_STATES).map(([value, label]) => ({ value, label }))} />
+      <Select allowClear placeholder="Контроль сроков" value={attention} onChange={setAttention} style={{ width: 280 }} options={[
+        { value: 'overdue', label: 'Просрочен возврат с заправки' }, { value: 'no_deadline', label: 'На заправке без срока возврата' },
+        { value: 'empty', label: 'Пустые — ожидают отправки' }, { value: 'installed_long', label: 'Установлены дольше заданного срока' },
+      ]} />
+      {attention === 'installed_long' && <Space><InputNumber aria-label="Срок установки в днях" min={0} max={36500} precision={0}
+        value={installedDays} onChange={(value) => setInstalledDays(value ?? 30)} /> дней</Space>}
       {deviceFilter && <Tag>Установленные в выбранном принтере</Tag>}
     </Space>}
+    {!id && overdueCount > 0 && <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+      message={`Просрочен возврат с заправки: ${overdueCount}`}
+      action={<Button size="small" onClick={() => { setState(undefined); setAttention('overdue'); setSearch('') }}>Показать</Button>} />}
     <Tabs items={[
+      ...(id ? [{ key: 'timeline', label: 'Лента событий', children: <CartridgeTimeline operations={history} /> }] : []),
       { key: 'items', label: `Картриджи (${items.length})`, children: <Table rowKey="item_id" dataSource={items} columns={columns} loading={loading}
         rowSelection={id ? undefined : { selectedRowKeys: selected, onChange: setSelected, preserveSelectedRowKeys: false }} scroll={{ x: 'max-content' }} pagination={{ pageSize: 25, showSizeChanger: true }} /> },
       ...(!id ? [{ key: 'summary', label: 'Остатки по получателям', children: <>
@@ -278,8 +408,13 @@ export default function CartridgesPage() {
         <Table rowKey="key" dataSource={cartridgeSummary(items, grouping)} columns={summaryColumns} scroll={{ x: 'max-content' }} />
       </> }] : []),
       { key: 'history', label: 'История операций', children: <Table rowKey="id" dataSource={history} columns={operationColumns} scroll={{ x: 'max-content' }} pagination={{ pageSize: 25, showSizeChanger: true }} /> },
+      { key: 'resource', label: 'Ресурс между заменами', children: <CartridgeResourceHistory operations={history} /> },
     ]} />
     <CartridgeModal mode={mode} initialIds={initialIds} initialDevice={deviceFilter} data={data}
       onClose={() => setMode(null)} onSaved={() => { setMode(null); setSelected([]); load() }} />
+    <CartridgeCompatibilityModal open={compatibilityOpen} initialModel={current?.name} items={data.items} devices={data.devices}
+      onClose={() => setCompatibilityOpen(false)} onSaved={() => { setCompatibilityOpen(false); load() }} />
+    <WarehouseItemModal open={Boolean(editing)} editing={editing} branches={data.branches} departments={data.departments}
+      onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />
   </>
 }

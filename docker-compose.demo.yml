@@ -1,0 +1,42 @@
+# Standalone configuration: do not combine with docker-compose.yml.
+# Start: docker compose -f docker-compose.demo.yml up --build -d
+name: printer-dashboard-demo
+
+services:
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: sqlite:////app/data/printer_dashboard.db
+      ADMIN_LOGIN: demo
+      ADMIN_PASSWORD: demo-printer-2026
+      SECRET_KEY: demo-only-local-testing-change-for-any-real-deployment
+      OCS_AD_IMPORT_TOKEN: demo-only-import-token
+      PHOTO_DIRECTORY: /app/equipment_photos
+      REPAIR_INVOICE_DIRECTORY: /app/data/repair_invoices
+    command:
+      - /bin/sh
+      - -c
+      - python seed_demo.py --output /app/data/printer_dashboard.db --if-missing && exec uvicorn main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - demo_db:/app/data
+      - demo_photos:/app/equipment_photos
+    ports:
+      - "127.0.0.1:8001:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  demo_db:
+  demo_photos:

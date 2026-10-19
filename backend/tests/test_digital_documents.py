@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 import tempfile
@@ -195,14 +196,14 @@ class DigitalDocumentsStartupTests(unittest.TestCase):
                 db.add(Device(manufacturer='Kyocera', model='Keep printer', device_type=DeviceType.printer, inventory_number='1-00167'))
                 db.commit()
             engine.dispose()
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 db.execute('DROP TABLE electronic_signatures')
                 db.execute('DROP TABLE machine_readable_powers_of_attorney')
             environment = {**os.environ, 'DATABASE_URL': 'sqlite:///' + str(filename), 'PHOTO_DIRECTORY': str(Path(directory) / 'photos')}
             script = "import main; from database import SessionLocal; from models import ElectronicSignature; from datetime import date; db=SessionLocal(); db.add(ElectronicSignature(company_name='Keep company',full_name='Keep holder',valid_from=date(2026,1,1),valid_to=date(2027,1,1))); db.commit()"
             subprocess.run([sys.executable, '-c', script], cwd=backend, env=environment, check=True, capture_output=True, timeout=30)
             subprocess.run([sys.executable, '-c', 'import main'], cwd=backend, env=environment, check=True, capture_output=True, timeout=30)
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 self.assertEqual(db.execute('SELECT inventory_number,model FROM devices').fetchall(), [('1-00167', 'Keep printer')])
                 self.assertEqual(db.execute('SELECT company_name FROM electronic_signatures').fetchall(), [('Keep company',)])
                 self.assertEqual(db.execute('SELECT count(*) FROM machine_readable_powers_of_attorney').fetchone(), (0,))

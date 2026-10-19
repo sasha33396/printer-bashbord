@@ -1,18 +1,19 @@
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload, object_session
 from sqlalchemy.orm.exc import StaleDataError
 
-from cartridge_schemas import CartridgeAction, CartridgeCreate, CartridgeInstall, Destination
+from cartridge_schemas import CartridgeAction, CartridgeCreate, CartridgeInstall, CompatibilityInput, Destination
+from cartridge_tracking import cycle_pages, device_key, model_key, today as tracking_today, tracking
 from database import get_db
 from equipment_history import add_item_event
 from inventory_numbers import inventory_number_lock, inventory_number_owner, require_inventory_number
 from models import (
-    Branch, Cartridge, CartridgeOperation, Department, Device, DeviceStatus, DeviceType,
+    Branch, Cartridge, CartridgeCompatibility, CartridgeOperation, Department, Device, DeviceStatus, DeviceType,
     Employee, StockMovement, StockMovementType, WarehouseItem, WorkplaceAssetAssignment,
 )
 from routers.auth import get_current_user
@@ -26,7 +27,8 @@ OPERATIONS = {"received": "Поступление картриджа", "register
               "transfer": "Передача картриджа", "install": "Установка картриджа",
               "remove": "Снятие картриджа", "send_refill": "Отправка на заправку",
               "return_refill": "Возврат с заправки", "defective": "Картридж неисправен",
-              "write_off": "Списание картриджа"}
+              "write_off": "Списание картриджа", "refill_deadline": "Изменение срока возврата",
+              "deleted": "Удаление карточки картриджа"}
 
 
 def conflict(message):
@@ -34,10 +36,11 @@ def conflict(message):
 
 
 def query(db):
-    return db.query(Cartridge).options(
+    return db.query(Cartridge).filter(Cartridge.is_deleted.is_(False)).options(
         joinedload(Cartridge.item).joinedload(WarehouseItem.branch),
         joinedload(Cartridge.item).joinedload(WarehouseItem.department),
         joinedload(Cartridge.employee), joinedload(Cartridge.device),
+        selectinload(Cartridge.operations),
     )
 
 
@@ -62,11 +65,22 @@ def location(record):
     return " / ".join(str(part) for part in parts if part)
 
 
-def read(record):
+def compatibility_catalog(db):
+    catalog = {}
+    for row in db.query(CartridgeCompatibility).order_by(CartridgeCompatibility.id).all():
+        catalog.setdefault(row.cartridge_key, []).append({"manufacturer": row.manufacturer, "model": row.model})
+    return catalog
+
+
+def read(record, profiles=None):
     item = record.item
+    if profiles is None:
+        profiles = compatibility_catalog(object_session(record))
     return {
         "item_id": item.id, "inventory_number": item.inventory_number, "name": item.name,
         "compatible_printers": item.compatible_printers, "notes": item.notes,
+        "compatible_models": profiles.get(model_key(item.name), []),
+        **tracking(record),
         "branch_id": item.branch_id, "branch_name": item.branch.name if item.branch else None,
         "department_id": item.department_id, "department_name": item.department.name if item.department else None,
         "state": record.state, "holder_type": record.holder_type,
@@ -119,7 +133,7 @@ def validate_date(record, operation_date):
 
 
 def check_date(value):
-    if value > date.today():
+    if value > tracking_today():
         raise HTTPException(422, "Дата операции не может быть в будущем")
 
 
@@ -130,27 +144,33 @@ def snapshot(record):
             "slot": record.slot, "contractor": record.contractor}
 
 
-def log(db, record, operation, operation_date, actor, batch, before=None, notes=None):
+def log(db, record, operation, operation_date, actor, batch, before=None, notes=None,
+        page_counter=None, pages_printed=None):
     before = before or {}
     record.last_operation_date = operation_date
     # Touch the version even for a same-day transfer; SQLAlchemy checks it at flush.
     record.version += 1
     record.item.condition = STATES[record.state]
     record.item.placement = location(record)[:100]
-    db.add(CartridgeOperation(
+    record.operations.append(CartridgeOperation(
         batch_id=batch, item_id=record.item_id, date=operation_date, operation=operation,
         from_location=before.get("location"), to_location=location(record),
         from_state=before.get("state"), to_state=record.state,
         device_id=record.device.id if record.device else before.get("device_id"),
         device_name=(f"{record.device.manufacturer} {record.device.model}" if record.device else before.get("device_name")),
         slot=record.slot or before.get("slot"), contractor=record.contractor or before.get("contractor"),
-        actor=actor["username"], notes=notes,
+        actor=actor["username"], notes=notes, page_counter=page_counter, pages_printed=pages_printed,
+        expected_return_date=record.expected_return_date if operation in {"send_refill", "refill_deadline"} else None,
     ))
     add_item_event(
         db, record.item, category="cartridge", event_type=f"cartridge_{operation}",
         title=OPERATIONS[operation], actor=actor["username"], effective_date=operation_date,
         employee=record.employee, from_value=before.get("location"), to_value=location(record),
-        details=f"{STATES.get(before.get('state'), '—')} → {STATES[record.state]}" + (f". {notes}" if notes else ""),
+        details=f"{STATES.get(before.get('state'), '—')} → {STATES[record.state]}"
+        + (f". Счётчик: {page_counter}" if page_counter is not None else "")
+        + (f". Напечатано: {pages_printed}" if pages_printed is not None else "")
+        + (f". Срок возврата: {record.expected_return_date or 'не задан'}" if operation in {"send_refill", "refill_deadline"} else "")
+        + (f". {notes}" if notes else ""),
     )
 
 
@@ -165,7 +185,32 @@ def transaction_errors(db):
 
 @router.get("")
 def list_cartridges(db: Session = Depends(get_db), _: dict = AUTH):
-    return [read(record) for record in query(db).order_by(Cartridge.item_id.desc()).all()]
+    profiles = compatibility_catalog(db)
+    return [read(record, profiles) for record in query(db).order_by(Cartridge.item_id.desc()).all()]
+
+
+@router.get("/compatibility")
+def list_compatibility(db: Session = Depends(get_db), _: dict = AUTH):
+    groups = {}
+    for row in db.query(CartridgeCompatibility).order_by(CartridgeCompatibility.cartridge_model, CartridgeCompatibility.id):
+        groups.setdefault(row.cartridge_key, {"cartridge_model": row.cartridge_model, "devices": []})["devices"].append(
+            {"manufacturer": row.manufacturer, "model": row.model})
+    return list(groups.values())
+
+
+@router.put("/compatibility")
+def update_compatibility(payload: CompatibilityInput, db: Session = Depends(get_db), actor: dict = AUTH):
+    keys = [device_key(row.manufacturer, row.model) for row in payload.devices]
+    if len(set(keys)) != len(keys):
+        raise HTTPException(422, "Модель принтера указана несколько раз")
+    key = model_key(payload.cartridge_model)
+    with inventory_number_lock, transaction_errors(db):
+        db.query(CartridgeCompatibility).filter_by(cartridge_key=key).delete(synchronize_session=False)
+        db.add_all([CartridgeCompatibility(cartridge_model=payload.cartridge_model, cartridge_key=key,
+                    manufacturer=row.manufacturer, model=row.model, device_key=device_key(row.manufacturer, row.model))
+                    for row in payload.devices])
+        db.commit()
+    return {"cartridge_model": payload.cartridge_model, "devices": [row.model_dump() for row in payload.devices]}
 
 
 @router.post("", status_code=201)
@@ -224,7 +269,8 @@ def create_cartridges(payload: CartridgeCreate, db: Session = Depends(get_db), a
                            title="Картриджи переведены в поштучный учёт", actor=actor["username"],
                            effective_date=payload.date, details=", ".join(numbers))
         db.commit()
-        return [read(record) for record in records]
+        profiles = compatibility_catalog(db)
+        return [read(record, profiles) for record in records]
 
 
 @router.get("/operations")
@@ -259,13 +305,22 @@ def action(payload: CartridgeAction, db: Session = Depends(get_db), actor: dict 
                 conflict("На заправку можно отправить только пустой картридж")
             if op == "return_refill" and record.state != "refilling":
                 conflict("Картридж не находится на заправке")
+            if op == "refill_deadline":
+                if record.state != "refilling":
+                    conflict("Изменить срок можно только у картриджа на заправке")
+                if payload.expected_return_date and record.last_refill_sent_at and payload.expected_return_date < record.last_refill_sent_at:
+                    raise HTTPException(422, "Срок возврата не может быть раньше отправки")
             if op == "remove" and record.state != "installed":
                 conflict("Картридж не установлен в принтере")
+            if op == "remove":
+                cycle_pages(record, payload.page_counters.get(record.item_id))
             if op in {"defective", "write_off"} and record.state in {"installed", "refilling"}:
                 conflict("Сначала снимите картридж или оформите возврат с заправки")
         batch = str(uuid4())
         for record in records:
             before = snapshot(record)
+            counter = payload.page_counters.get(record.item_id) if op == "remove" else None
+            printed = cycle_pages(record, counter) if op == "remove" else None
             if validated:
                 move(record, payload.destination, validated)
             if op == "send_refill":
@@ -274,9 +329,13 @@ def action(payload: CartridgeAction, db: Session = Depends(get_db), actor: dict 
                 record.employee = None
                 record.contractor = payload.contractor
                 record.last_refill_sent_at = payload.date
+                record.expected_return_date = payload.expected_return_date
+            elif op == "refill_deadline":
+                record.expected_return_date = payload.expected_return_date
             elif op == "return_refill":
                 record.state = payload.result
                 record.last_refill_returned_at = payload.date
+                record.expected_return_date = None
                 if payload.result == "ready":
                     record.refill_count += 1
             elif op == "remove":
@@ -284,14 +343,17 @@ def action(payload: CartridgeAction, db: Session = Depends(get_db), actor: dict 
                 record.device = None
                 record.slot = None
                 record.last_removed_at = payload.date
+                record.installation_page_counter = None
             elif op in {"defective", "write_off"}:
                 record.state = "defective" if op == "defective" else "written_off"
                 if op == "write_off":
                     record.item.is_archived = True
                     record.item.archived_at = datetime.now(timezone.utc)
-            log(db, record, op, payload.date, actor, batch, before, payload.notes)
+            log(db, record, op, payload.date, actor, batch, before, payload.notes,
+                page_counter=counter, pages_printed=printed)
         db.commit()
-        return [read(record) for record in records]
+        profiles = compatibility_catalog(db)
+        return [read(record, profiles) for record in records]
 
 
 @router.post("/install")
@@ -304,6 +366,12 @@ def install(payload: CartridgeInstall, db: Session = Depends(get_db), actor: dic
         device = db.get(Device, payload.device_id)
         if not device or device.device_type == DeviceType.scanner or device.status == DeviceStatus.decommissioned:
             raise HTTPException(422, "Выберите действующий принтер, МФУ или плоттер")
+        profiles = compatibility_catalog(db)
+        compatible = profiles.get(model_key(incoming.item.name), [])
+        if compatible and device_key(device.manufacturer, device.model) not in {
+            device_key(row["manufacturer"], row["model"]) for row in compatible
+        }:
+            raise HTTPException(422, "Модель картриджа несовместима с выбранной моделью принтера по справочнику")
         if not device.department or not device.department.branch_id:
             raise HTTPException(422, "Сначала укажите филиал и отдел у принтера")
         target = payload.destination
@@ -318,12 +386,15 @@ def install(payload: CartridgeInstall, db: Session = Depends(get_db), actor: dic
         batch = str(uuid4())
         if outgoing:
             validate_date(outgoing, payload.date)
+            printed = cycle_pages(outgoing, payload.page_counter)
             before = snapshot(outgoing)
             outgoing.state = "empty"
             outgoing.device = None
             outgoing.slot = None
             outgoing.last_removed_at = payload.date
-            log(db, outgoing, "remove", payload.date, actor, batch, before, payload.notes)
+            outgoing.installation_page_counter = None
+            log(db, outgoing, "remove", payload.date, actor, batch, before, payload.notes,
+                page_counter=payload.page_counter, pages_printed=printed)
             # Release the unique device slot before assigning its replacement.
             db.flush()
         before = snapshot(incoming)
@@ -332,7 +403,8 @@ def install(payload: CartridgeInstall, db: Session = Depends(get_db), actor: dic
         incoming.slot = payload.slot
         incoming.state = "installed"
         incoming.last_installed_at = payload.date
-        log(db, incoming, "install", payload.date, actor, batch, before, payload.notes)
+        incoming.installation_page_counter = payload.page_counter
+        log(db, incoming, "install", payload.date, actor, batch, before, payload.notes, page_counter=payload.page_counter)
         db.commit()
         return read(incoming)
 
@@ -340,3 +412,42 @@ def install(payload: CartridgeInstall, db: Session = Depends(get_db), actor: dic
 @router.get("/{item_id}")
 def get_card(item_id: int, db: Session = Depends(get_db), _: dict = AUTH):
     return read(get_cartridge(db, item_id))
+
+
+@router.delete("/{item_id}", status_code=204)
+def delete_cartridge(item_id: int, version: int = Query(ge=1),
+                     db: Session = Depends(get_db), actor: dict = AUTH):
+    with inventory_number_lock, transaction_errors(db):
+        record = get_cartridge(db, item_id)
+        if record.version != version:
+            conflict("Карточка изменилась. Обновите список перед удалением.")
+        before = snapshot(record)
+        operation_date = tracking_today()
+        # Keep immutable history and inventory identity, while releasing live links.
+        # This follows the warehouse's archival deletion and prevents stock doubling.
+        record.operations.append(CartridgeOperation(
+            batch_id=str(uuid4()), item_id=item_id, date=operation_date,
+            operation="deleted", from_location=before["location"], to_location="Удалено из учёта",
+            from_state=record.state, to_state=record.state,
+            device_id=record.device_id, device_name=before["device_name"],
+            slot=record.slot, contractor=record.contractor, actor=actor["username"],
+        ))
+        add_item_event(db, record.item, category="cartridge", event_type="cartridge_deleted",
+                       title="Карточка картриджа удалена", actor=actor["username"],
+                       effective_date=operation_date, employee=record.employee,
+                       from_value=before["location"], to_value="Удалено из учёта",
+                       details="История, номер наклейки и складской архив сохранены")
+        record.is_deleted = True
+        record.last_operation_date = operation_date
+        record.device = None
+        record.slot = None
+        record.employee = None
+        record.contractor = None
+        record.holder_type = "warehouse"
+        record.expected_return_date = None
+        record.installation_page_counter = None
+        record.item.is_archived = True
+        record.item.archived_at = datetime.now(timezone.utc)
+        record.item.condition = "Удалено из учёта"
+        record.item.placement = "Архив"
+        db.commit()

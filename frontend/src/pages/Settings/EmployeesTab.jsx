@@ -192,12 +192,12 @@ export default function EmployeesTab() {
                 message: 'Укажите логин без домена и пробелов',
               }]}
             >
-              <Input placeholder="m.shutov" maxLength={255} allowClear />
+              <Input placeholder="i.ivanov" maxLength={255} allowClear />
             </Form.Item>
           </Col>
           <Col span={12}>
             <Form.Item name="ad_domain" label="Домен AD">
-              <Input placeholder="ruskon.local" maxLength={255} allowClear />
+              <Input placeholder="example.test" maxLength={255} allowClear />
             </Form.Item>
           </Col>
           <Col span={12}><Form.Item name="position" label="Должность"><Input /></Form.Item></Col>

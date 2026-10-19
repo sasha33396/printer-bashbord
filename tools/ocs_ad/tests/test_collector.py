@@ -15,24 +15,25 @@ from tools.ocs_ad import collector as c
 
 def config(**changes):
     values = dict(ocs_url="http://ocs/ocsapi/v1", app_url="http://app:3000",
-                  ad_server="ruskon.local", ad_domain="ruskon.local", ocs_timezone="+04:00")
+                  ad_server="example.test", ad_domain="example.test", ocs_timezone="+04:00",
+                  laptop_names=[f'EXAMPLE-LAPTOP-{index:02}' for index in range(1,11)])
     values.update(changes)
     return c.Config(**values)
 
 
-def card(ident="94", name="WS-TEST-01", login="m.shutov", serial="PC-001"):
+def card(ident="94", name="WS-TEST-01", login="i.ivanov", serial="PC-001"):
     return {ident: {
         "": {"ignored": True}, "software": [{"KEY": "DO-NOT-EXPORT-LICENSE"}],
         "hardware": [{"ID": int(ident), "NAME": name, "USERID": login, "USERDOMAIN": None,
-                      "WORKGROUP": "ruskon.local", "LASTDATE": datetime.now(timezone.utc).isoformat(),
+                      "WORKGROUP": "example.test", "LASTDATE": datetime.now(timezone.utc).isoformat(),
                       "MEMORY": 4096, "PROCESSORT": "Intel i3", "OSNAME": "Windows 11 Pro",
-                      "OSVERSION": "10.0.26200", "IPADDR": "172.16.55.197"}],
+                      "OSVERSION": "10.0.26200", "IPADDR": "192.0.2.10"}],
         "bios": [{"TYPE": "Desktop", "SMANUFACTURER": "Acer", "SMODEL": "Aspire", "SSN": serial}],
         "videos": [{"NAME": "Intel UHD"}],
         "storages": [{"ID": 1, "TYPE": "Fixed hard disk media", "DISKSIZE": 244191, "MODEL": "PHYSICALDRIVE0", "NAME": "NE-256"}],
         "networks": [
-            {"DESCRIPTION": "vEthernet Virtual", "IPADDRESS": "172.16.55.197", "MACADDR": "00:11:22:33:44:55", "STATUS": "Up", "VIRTUALDEV": 1},
-            {"DESCRIPTION": "Realtek", "IPADDRESS": "172.16.55.197", "MACADDR": "1c-69-7a-9e-c7-ac", "STATUS": "Up"},
+            {"DESCRIPTION": "vEthernet Virtual", "IPADDRESS": "192.0.2.10", "MACADDR": "00:11:22:33:44:55", "STATUS": "Up", "VIRTUALDEV": 1},
+            {"DESCRIPTION": "Realtek", "IPADDRESS": "192.0.2.10", "MACADDR": "02-00-00-00-00-10", "STATUS": "Up"},
         ],
         "monitors": [{"ID": 72, "CAPTION": "S24D300", "MANUFACTURER": "Samsung", "SERIAL": ""}],
     }}
@@ -42,9 +43,9 @@ def ad_users(queries, _):
     result = {}
     for index, query in enumerate(queries):
         result[query["key"]] = {"status": "found", "employee": {
-            "ad_login": query["raw_login"], "domain": "ruskon.local",
+            "ad_login": query["raw_login"], "domain": "example.test",
             "ad_guid": f"00000000-0000-0000-0000-{index + 1:012d}",
-            "full_name": "Шутов Максим", "ad_enabled": True,
+            "full_name": "Иванов Иван", "ad_enabled": True,
         }}
     return result
 
@@ -55,7 +56,7 @@ class NormalizationTests(unittest.TestCase):
         data = candidate.record["computer"]
         self.assertEqual((data["ram_gb"], data["storage_capacity_gb"]), (4, 238))
         self.assertIsNone(data["storage_type"])  # Fixed hard disk media does not prove HDD.
-        self.assertEqual(data["mac_address"], "1C:69:7A:9E:C7:AC")
+        self.assertEqual(data["mac_address"], "02:00:00:00:00:10")
         self.assertEqual(data["processor"], "Intel i3")
         self.assertEqual(data["form_factor"], "desktop")
         self.assertEqual(candidate.record["monitors"][0]["serial_number"], None)
@@ -67,8 +68,8 @@ class NormalizationTests(unittest.TestCase):
         for section in ("hardware", "bios"):
             value["94"][section] = value["94"][section][0]
         result = c.normalize_card("94", json.dumps(json.dumps(value)), config())
-        self.assertEqual(result.raw_login, "m.shutov")
-        self.assertEqual(result.domain_hint, "ruskon.local")
+        self.assertEqual(result.raw_login, "i.ivanov")
+        self.assertEqual(result.domain_hint, "example.test")
 
     def test_dates_use_configured_offset_without_inventing_missing_date(self):
         value = card()
@@ -80,7 +81,7 @@ class NormalizationTests(unittest.TestCase):
             c.normalize_card("94", value, config())
 
     def test_laptop_names_override_chassis_and_portable_chassis_is_recognized(self):
-        value = card(name="Ershov-Note")
+        value = card(name="EXAMPLE-LAPTOP-10")
         self.assertEqual(c.normalize_card("94", value, config()).record["computer"]["form_factor"], "laptop")
         value["94"]["hardware"][0]["NAME"] = "WS-MOBILE-01"
         value["94"]["bios"][0]["TYPE"] = "Notebook"
@@ -141,7 +142,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_laptop_and_primary_pc_are_allowed_and_kept_in_same_batch(self):
         client = MagicMock()
-        laptop = card("95", "NOTE-BUH-2", serial="LAP-001")
+        laptop = card("95", "EXAMPLE-LAPTOP-05", serial="LAP-001")
         laptop["95"]["monitors"] = []
         client.request.side_effect = [laptop, card()]
         records, report = c.prepare_records(client, ["95", "94"], config(), ad_users)
@@ -154,13 +155,13 @@ class PipelineTests(unittest.TestCase):
 
     def test_shared_monitor_still_blocks_pc_and_laptop(self):
         client = MagicMock()
-        client.request.side_effect = [card(), card("95", "NOTE-BUH-2", serial="LAP-001")]
+        client.request.side_effect = [card(), card("95", "EXAMPLE-LAPTOP-05", serial="LAP-001")]
         records, report = c.prepare_records(client, ["94", "95"], config(), ad_users)
         self.assertEqual(records, [])
         self.assertEqual(report[0]["duplicate_keys"], [["monitor", "72"]])
 
     def test_blocked_primary_does_not_leave_laptop_to_create_another_workplace(self):
-        laptop = card("95", "NOTE-BUH-2", serial="LAP-001")
+        laptop = card("95", "EXAMPLE-LAPTOP-05", serial="LAP-001")
         laptop["95"]["monitors"] = []
         other = card("96", "OTHER-PC", login="a.other", serial="PC-002")
         client = MagicMock()
@@ -170,13 +171,16 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(all(row["status"] == "conflict" for row in report))
         self.assertEqual(report[1]["duplicate_keys"][0][0], "employee_group")
 
-    def test_confirmed_op_krd_match_is_explicit_and_checks_source_name(self):
-        computer = c.normalize_card("555", card("555", "OP-KRD-1"), config()).record["computer"]
-        self.assertEqual(computer["match_existing_name"], "OP-KRD-1")
+    def test_confirmed_match_is_explicit_and_checks_source_name(self):
+        unconfigured=c.normalize_card("555",card("555","EXAMPLE-PC-01"),config()).record['computer']
+        self.assertNotIn('match_existing_name',unconfigured)
+        matching=config(computer_matches={'555':{'name':'EXAMPLE-PC-01'}})
+        computer = c.normalize_card("555", card("555", "EXAMPLE-PC-01"), matching).record["computer"]
+        self.assertEqual(computer["match_existing_name"], "EXAMPLE-PC-01")
         with self.assertRaises(c.CollectorError):
-            c.normalize_card("555", card("555", "UNEXPECTED-PC"), config())
-        explicit = config(computer_matches={"555": {"name": "OP-KRD-1", "item_id": 123}})
-        computer = c.normalize_card("555", card("555", "OP-KRD-1"), explicit).record["computer"]
+            c.normalize_card("555", card("555", "UNEXPECTED-PC"), matching)
+        explicit = config(computer_matches={"555": {"name": "EXAMPLE-PC-01", "item_id": 123}})
+        computer = c.normalize_card("555", card("555", "EXAMPLE-PC-01"), explicit).record["computer"]
         self.assertEqual(computer["item_id"], 123)
         self.assertNotIn("match_existing_name", computer)
 
@@ -279,7 +283,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config().import_url, "http://app:3000/api/integrations/ocs-ad/import")
         for changes in ({"batch_size": 501}, {"max_age_days": 0}, {"ocs_timezone": "local"}, {"laptop_names": "x"},
                         {"computer_matches": []}, {"computer_matches": {"555": {"name": ""}}},
-                        {"computer_matches": {"555": {"name": "OP-KRD-1", "item_id": True}}}):
+                        {"computer_matches": {"555": {"name": "EXAMPLE-PC-01", "item_id": True}}}):
             with self.subTest(changes=changes), self.assertRaises(c.CollectorError):
                 config(**changes)
         for url in ("http://user:password@host", "file:///etc/passwd", "http://host?secret=x"):
@@ -294,13 +298,13 @@ class ConfigTests(unittest.TestCase):
 class PowerShellTests(unittest.TestCase):
     def test_identity_formats_domains_disabled_users_and_utf8_without_live_ad(self):
         queries = [
-            {"key": "0", "raw_login": "m.shutov", "domain_hint": "ruskon.local"},
-            {"key": "1", "raw_login": "RUSKON\\m.shutov", "domain_hint": ""},
-            {"key": "2", "raw_login": "OTHER\\m.shutov", "domain_hint": ""},
-            {"key": "3", "raw_login": "m.shutov@ruskon.local", "domain_hint": ""},
-            {"key": "4", "raw_login": "m.shutov@other.local", "domain_hint": ""},
-            {"key": "5", "raw_login": "m.shutov", "domain_hint": "WORKGROUP"},
-            {"key": "6", "raw_login": "disabled", "domain_hint": "ruskon.local"},
+            {"key": "0", "raw_login": "i.ivanov", "domain_hint": "example.test"},
+            {"key": "1", "raw_login": "EXAMPLE\\i.ivanov", "domain_hint": ""},
+            {"key": "2", "raw_login": "OTHER\\i.ivanov", "domain_hint": ""},
+            {"key": "3", "raw_login": "i.ivanov@example.test", "domain_hint": ""},
+            {"key": "4", "raw_login": "i.ivanov@other.local", "domain_hint": ""},
+            {"key": "5", "raw_login": "i.ivanov", "domain_hint": "WORKGROUP"},
+            {"key": "6", "raw_login": "disabled", "domain_hint": "example.test"},
             {"key": "7", "raw_login": "00000000-0000-0000-0000-000000000001", "domain_hint": ""},
         ]
         script = Path(c.__file__).with_name("get_ad_users.ps1")
@@ -314,26 +318,26 @@ class PowerShellTests(unittest.TestCase):
 function Import-Module { param($Name, $ErrorAction) }
 function Get-ADDomain {
     param($Server, $ErrorAction)
-    return [pscustomobject]@{ DNSRoot = 'ruskon.local'; NetBIOSName = 'RUSKON' }
+    return [pscustomobject]@{ DNSRoot = 'example.test'; NetBIOSName = 'EXAMPLE' }
 }
 function Get-ADUser {
     param($Identity, $Filter, $Properties, $Server, $ErrorAction)
     if ($Filter) {
         $requestedUpn = Get-Variable upn -Scope 1 -ValueOnly
-        if ($requestedUpn -ne 'm.shutov@ruskon.local') { return }
+        if ($requestedUpn -ne 'i.ivanov@example.test') { return }
     }
-    $sam = if ($Identity -eq 'disabled') { 'disabled' } else { 'm.shutov' }
+    $sam = if ($Identity -eq 'disabled') { 'disabled' } else { 'i.ivanov' }
     return [pscustomobject]@{
-        SamAccountName = $sam; UserPrincipalName = ($sam + '@ruskon.local')
-        ObjectGUID = [guid]'3dc0fec6-9dfa-40dd-b115-cf6eaa9b4642'
-        DisplayName = 'Шутов Максим'; Name = 'Шутов Максим'
-        GivenName = 'Максим'; Surname = 'Шутов'; Enabled = ($sam -ne 'disabled')
+        SamAccountName = $sam; UserPrincipalName = ($sam + '@example.test')
+        ObjectGUID = [guid]'00000000-0000-4000-8000-000000000001'
+        DisplayName = 'Иванов Иван'; Name = 'Иванов Иван'
+        GivenName = 'Иван'; Surname = 'Иванов'; Enabled = ($sam -ne 'disabled')
         Title = $null; EmailAddress = $null; telephoneNumber = $null
     }
 }
 """
             harness += "& " + quote(script) + " -InputPath " + quote(input_path) + " -OutputPath " + quote(output_path)
-            harness += " -Server 'test-dc' -ExpectedDomain 'ruskon.local'\n"
+            harness += " -Server 'test-dc' -ExpectedDomain 'example.test'\n"
             harness_path = Path(folder) / "harness.ps1"
             harness_path.write_text(harness, encoding="utf-8-sig")
             process = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -345,8 +349,8 @@ function Get-ADUser {
         self.assertEqual([user["status"] for user in users], [
             "found", "found", "foreign_domain", "found", "not_found", "foreign_domain", "disabled", "invalid_login",
         ])
-        self.assertEqual(users[0]["employee"]["full_name"], "Шутов Максим")
-        self.assertEqual(users[0]["employee"]["domain"], "ruskon.local")
+        self.assertEqual(users[0]["employee"]["full_name"], "Иванов Иван")
+        self.assertEqual(users[0]["employee"]["domain"], "example.test")
 
 
 class ApiContractTests(unittest.TestCase):
@@ -364,7 +368,7 @@ class ApiContractTests(unittest.TestCase):
         except ImportError:
             self.skipTest("Run in the backend container for the real API contract check")
         client = MagicMock()
-        laptop = card("95", "Ershov-Note", serial="LAP-001")
+        laptop = card("95", "EXAMPLE-LAPTOP-10", serial="LAP-001")
         laptop["95"]["monitors"] = []
         client.request.side_effect = [laptop, card()]
         records, _ = c.prepare_records(client, ["95", "94"], config(), ad_users)

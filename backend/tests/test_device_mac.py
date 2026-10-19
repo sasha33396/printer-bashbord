@@ -1,4 +1,5 @@
 import io
+from contextlib import closing
 import json
 import os
 import sqlite3
@@ -126,15 +127,15 @@ class DeviceMacMigrationTests(unittest.TestCase):
                               inventory_number='1-00001', ip_address='192.168.1.10', page_counter=1234))
                 db.commit()
             engine.dispose()
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 db.execute('ALTER TABLE devices DROP COLUMN mac_address')
             environment = {**os.environ, 'DATABASE_URL': 'sqlite:///' + str(filename), 'PHOTO_DIRECTORY': str(Path(directory) / 'photos')}
             subprocess.run([sys.executable, '-c', 'import main'], cwd=backend, env=environment, check=True, capture_output=True, timeout=30)
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 self.assertEqual(db.execute('SELECT inventory_number,model,ip_address,page_counter,mac_address FROM devices').fetchone(),
                                  ('1-00001', 'Keep model', '192.168.1.10', 1234, None))
                 db.execute("UPDATE devices SET mac_address='AA:BB:CC:DD:EE:FF'")
             subprocess.run([sys.executable, '-c', 'import main'], cwd=backend, env=environment, check=True, capture_output=True, timeout=30)
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 self.assertEqual(db.execute('SELECT mac_address FROM devices').fetchone(), ('AA:BB:CC:DD:EE:FF',))
                 self.assertEqual(db.execute('PRAGMA quick_check').fetchone(), ('ok',))

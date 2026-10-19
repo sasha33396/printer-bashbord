@@ -146,6 +146,7 @@ function HistoryModal({ item, open, onClose, onChanged }) {
     },
     {
       title: 'Количество', key: 'quantity', width: 120, align: 'right',
+      sortValue: (row) => (row.movement_type === 'issue' ? -1 : 1) * row.quantity,
       render: (_, row) => {
         const config = MOVEMENT_CONFIG[row.movement_type]
         return <Typography.Text type={row.movement_type === 'issue' ? 'danger' : 'success'}>
@@ -427,7 +428,7 @@ export default function WarehousePage({ archiveOnly = false }) {
         <Button size="small" icon={<HistoryOutlined />} title="История" onClick={() => setHistoryItem(row)} />
         {!row.is_archived && <Button size="small" icon={<EditOutlined />} title="Редактировать" onClick={() => { setEditing(row); setItemModal(true) }} />}
         {row.is_archived ? (
-          <Button size="small" icon={<UndoOutlined />} title="Восстановить" onClick={() => restoreItem(row.id)} />
+          !row.cartridge_deleted && <Button size="small" icon={<UndoOutlined />} title="Восстановить" onClick={() => restoreItem(row.id)} />
         ) : (
           <Popconfirm title="Переместить позицию в архив?" onConfirm={() => removeItem(row.id)} okText="В архив" cancelText="Отмена">
             <Button size="small" icon={<DeleteOutlined />} danger />
@@ -443,6 +444,7 @@ export default function WarehousePage({ archiveOnly = false }) {
     { title: 'Наименование', dataIndex: 'sku', width: 180, render: (value) => value || '—' },
     {
       title: 'Количество', key: 'quantity', width: 125, align: 'right',
+      sortValue: (row) => row.current_quantity,
       render: (_, row) => <Tag color={row.current_quantity <= row.min_quantity ? 'red' : 'green'}>{row.current_quantity} {row.unit}</Tag>,
     },
     macColumn, stateColumn, notesColumn, itemActions,
@@ -592,7 +594,7 @@ export default function WarehousePage({ archiveOnly = false }) {
           <Table
             rowKey="category" loading={loading} pagination={false} size="small" dataSource={summary}
             columns={[
-              { title: '№', width: 70, filterable: false, render: (_, __, index) => index + 1 },
+              { title: '№', width: 70, filterable: false, sortable: false, render: (_, __, index) => index + 1 },
               { title: 'Категория', dataIndex: 'category' },
               { title: 'Количество', dataIndex: 'count', width: 140, align: 'right' },
             ]}

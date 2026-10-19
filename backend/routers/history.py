@@ -1,19 +1,41 @@
 from datetime import date, datetime, time, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
 from equipment_history import event_changes
 from models import EquipmentEvent
+from natural_sort import compare_natural_text
 from routers.auth import get_current_user
 from schemas import EquipmentEventPage, EquipmentEventRead
 
 
 router = APIRouter()
 _auth = Depends(get_current_user)
+
+
+def _sort_expression(key):
+    event = EquipmentEvent
+    if key == 'category':
+        return case({
+            'equipment': 'Оборудование', 'device': 'Устройство', 'workplace': 'Рабочее место',
+            'repair': 'Ремонт', 'stock': 'Складская операция', 'cartridge': 'Картридж',
+        }, value=event.category, else_=event.category)
+    if key == 'event':
+        return event.title
+    if key == 'entity':
+        number = func.coalesce(event.inventory_number, '')
+        name = func.coalesce(event.entity_name, '')
+        return case(((number != '') & (name != ''), number + ' · ' + name), else_=number + name)
+    if key == 'direction':
+        return case((or_(event.from_value != '', event.to_value != ''),
+                     func.coalesce(func.nullif(event.from_value, ''), '—') + ' → ' +
+                     func.coalesce(func.nullif(event.to_value, ''), '—')),
+                    else_=event.workplace_name)
+    return getattr(event, key)
 
 
 def _read(event: EquipmentEvent) -> EquipmentEventRead:
@@ -59,6 +81,8 @@ def list_history(
     actor_search: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    sort_by: Literal['occurred_at', 'category', 'event', 'entity', 'direction', 'employee_name', 'actor'] = 'occurred_at',
+    sort_order: Literal['ascend', 'descend'] = 'descend',
     db: Session = Depends(get_db),
     _: dict = _auth,
 ):
@@ -101,8 +125,20 @@ def list_history(
         ))
 
     total = query.count()
+    expression = _sort_expression(sort_by)
+    if sort_by != 'occurred_at':
+        # SQLite's built-in NOCASE only understands ASCII. Register a collation
+        # on this connection to sort the complete filtered journal before LIMIT.
+        if db.get_bind().dialect.name == 'sqlite':
+            db.connection().connection.driver_connection.create_collation('NATURAL_RU', compare_natural_text)
+            expression = expression.collate('NATURAL_RU')
+        else:
+            expression = func.lower(expression)
+    empty = expression.is_(None) if sort_by == 'occurred_at' else or_(expression.is_(None), func.trim(expression) == '')
+    missing = case((empty, 1), else_=0)
+    direction = expression.asc() if sort_order == 'ascend' else expression.desc()
     items = (
-        query.order_by(EquipmentEvent.occurred_at.desc(), EquipmentEvent.id.desc())
+        query.order_by(missing, direction, EquipmentEvent.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

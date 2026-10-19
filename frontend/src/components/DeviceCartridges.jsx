@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Space, Table, Tag, Typography, message } from 'antd'
+import { Button, Space, Tag, Typography, message } from 'antd'
+import Table from './FilterableTable'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
+import { counterText, sinceText } from './CartridgeTracking'
 import api from '../api/api'
 import { CARTRIDGE_OPERATIONS } from '../utils/cartridges'
 
@@ -40,6 +42,8 @@ export default function DeviceCartridges({ deviceId }) {
       { title: 'Модель', dataIndex: 'name' },
       { title: 'Получатель', dataIndex: 'employee_name', render: (value, item) => value || item.department_name || '—' },
       { title: 'Установлен', dataIndex: 'last_installed_at', render: (value) => value ? dayjs(value).format('DD.MM.YYYY') : '—' },
+      { title: 'В работе', dataIndex: 'state_since', render: (value, item) => sinceText(value, item.state_days) },
+      { title: 'Счётчик при установке', dataIndex: 'installation_page_counter', render: counterText },
     ]} />
     <Typography.Title level={5}>Последние операции</Typography.Title>
     <Table size="small" rowKey="id" loading={loading} dataSource={history.slice(0, 10)} pagination={false} scroll={{ x: 'max-content' }} columns={[

@@ -3,3 +3,8 @@ dist
 .git
 .venv
 *.md
+.env
+.env.*
+tests/
+*.db
+*.sqlite*

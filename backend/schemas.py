@@ -358,6 +358,7 @@ class WarehouseItemRead(BaseModel):
 
     id: int
     cartridge_managed: bool = False
+    cartridge_deleted: bool = False
     sku: Optional[str] = None
     name: str
     category: str

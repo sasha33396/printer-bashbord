@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 import tempfile
@@ -186,7 +187,7 @@ class ExistingDatabaseMigrationTests(unittest.TestCase):
             script = "import main; from database import SessionLocal; from models import Device,DeviceType; d=SessionLocal(); d.add_all([Device(manufacturer='A',model='B',device_type=DeviceType.printer),Device(manufacturer='A',model='C',device_type=DeviceType.printer,inventory_number='1-00167')]); d.commit()"
             subprocess.run([sys.executable, "-c", script], cwd=BACKEND, env=environment, check=True, capture_output=True, timeout=30)
             subprocess.run([sys.executable, "-c", "import main"], cwd=BACKEND, env=environment, check=True, capture_output=True, timeout=30)
-            with sqlite3.connect(filename) as db:
+            with closing(sqlite3.connect(filename)) as db, db:
                 self.assertEqual(db.execute("SELECT inventory_number FROM devices ORDER BY id").fetchall(), [(None,), ("1-00167",)])
 
 
@@ -197,7 +198,7 @@ class InventoryCleanupTests(unittest.TestCase):
         self.base = Path(self.directory.name)
         self.filename = self.base / "test.db"
         self.root = self.base / "photos"
-        self.keep = json.loads((BACKEND / "inventory_numbers_keep.json").read_text(encoding="utf-8"))
+        self.keep = json.loads((BACKEND / "inventory_numbers_keep.example.json").read_text(encoding="utf-8"))
         engine = create_engine("sqlite:///" + str(self.filename))
         Base.metadata.create_all(engine)
         with sessionmaker(bind=engine)() as db:
@@ -218,19 +219,19 @@ class InventoryCleanupTests(unittest.TestCase):
             album.mkdir(parents=True)
             (album / (number + "_0001.png")).write_bytes(PNG)
 
-    def test_preview_is_read_only_apply_keeps_eleven_cards_and_preserves_links_and_photos(self):
+    def test_preview_is_read_only_apply_keeps_verified_cards_and_preserves_links_and_photos(self):
         preview = run(self.filename, self.root, self.keep, self.base / "preview")
-        self.assertEqual(preview["totals"], {"retained": 11, "cleared": 2, "photo_albums_moved": 2})
+        self.assertEqual(preview["totals"], {"retained": len(self.keep), "cleared": 2, "photo_albums_moved": 2})
         self.assertTrue((self.root / "1-00888").exists())
         applied = run(self.filename, self.root, self.keep, self.base / "apply", apply=True)
         self.assertEqual(applied["status"], "applied")
-        with sqlite3.connect(self.filename) as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM warehouse_items WHERE inventory_number IS NOT NULL").fetchone()[0], 11)
+        with closing(sqlite3.connect(self.filename)) as db, db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM warehouse_items WHERE inventory_number IS NOT NULL").fetchone()[0], len(self.keep))
             self.assertIsNone(db.execute("SELECT inventory_number FROM devices").fetchone()[0])
             self.assertEqual(db.execute("SELECT inventory_number FROM workplace_asset_assignments").fetchone()[0], "1-00888")
             self.assertEqual(db.execute("SELECT item_id FROM ocs_asset_links").fetchone()[0], self.item_id)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM equipment_events WHERE actor='inventory-cleanup'").fetchone()[0], 2)
-        with sqlite3.connect(self.base / "apply/before.db") as backup:
+        with closing(sqlite3.connect(self.base / "apply/before.db")) as backup, backup:
             self.assertEqual(backup.execute("SELECT inventory_number FROM devices").fetchone()[0], "1-00889")
         self.assertTrue((self.base / "apply/photos-before.tar.gz").is_file())
         for kind, ident, old_number in (("warehouse_item", self.item_id, "1-00888"), ("device", self.device_id, "1-00889")):
@@ -245,17 +246,17 @@ class InventoryCleanupTests(unittest.TestCase):
         self.keep[0]["serial_number"] = "WRONG"
         with self.assertRaisesRegex(ValueError, "serial differs"):
             run(self.filename, self.root, self.keep, self.base / "failed", apply=True)
-        with sqlite3.connect(self.filename) as db:
+        with closing(sqlite3.connect(self.filename)) as db, db:
             self.assertEqual(db.execute("SELECT inventory_number FROM devices").fetchone()[0], "1-00889")
         self.assertTrue((self.root / "1-00888").exists())
         self.assertFalse((self.base / "failed/before.db").exists())
 
     def test_database_error_rolls_back_numbers_and_album_moves(self):
-        with sqlite3.connect(self.filename) as db:
+        with closing(sqlite3.connect(self.filename)) as db, db:
             db.execute("CREATE TRIGGER fail_clear BEFORE UPDATE ON warehouse_items WHEN NEW.inventory_number IS NULL BEGIN SELECT RAISE(ABORT, 'test failure'); END")
         with self.assertRaises(sqlite3.IntegrityError):
             run(self.filename, self.root, self.keep, self.base / "failed", apply=True)
-        with sqlite3.connect(self.filename) as db:
+        with closing(sqlite3.connect(self.filename)) as db, db:
             self.assertEqual(db.execute("SELECT inventory_number FROM devices").fetchone()[0], "1-00889")
             self.assertEqual(db.execute("SELECT inventory_number FROM warehouse_items WHERE id=?", (self.item_id,)).fetchone()[0], "1-00888")
             self.assertEqual(db.execute("SELECT COUNT(*) FROM equipment_events").fetchone()[0], 0)

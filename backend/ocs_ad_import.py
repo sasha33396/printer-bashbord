@@ -27,11 +27,7 @@ from routers.workplaces import _new_assignment
 
 
 COMPUTER_CATEGORIES = ("Компьютеры", "Ноутбуки")
-DEFAULT_LAPTOP_NAMES = (
-    "NOTEBOOK-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
-    "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",
-    "NOTEBOOK-SAR1", "ERSHOV-NOTE",
-)
+DEFAULT_LAPTOP_NAMES = ()
 
 
 def _computer_category(data, name):

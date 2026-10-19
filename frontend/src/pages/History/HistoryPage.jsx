@@ -72,6 +72,7 @@ export default function HistoryPage({ embedded = false } = {}) {
   const [employees, setEmployees] = useState([])
   const [period, setPeriod] = useState()
   const [columnSearch, setColumnSearch] = useState({})
+  const [sorting, setSorting] = useState({ key: 'occurred_at', order: 'descend' })
   const setColumnFilter = (key, value) => { setColumnSearch((previous) => ({ ...previous, [key]: value })); setPage(1) }
   const entityType = initial.get('entity_type') || undefined
   const entityId = initial.get('entity_id') ? Number(initial.get('entity_id')) : undefined
@@ -84,6 +85,7 @@ export default function HistoryPage({ embedded = false } = {}) {
         category, event_type: eventType, entity_type: entityType, entity_id: entityId,
         branch_name: branchName, employee_name: employeeName,
         ...columnSearch,
+        sort_by: sorting.key || 'occurred_at', sort_order: sorting.order || 'descend',
         date_from: period?.[0]?.format('YYYY-MM-DD'),
         date_to: period?.[1]?.format('YYYY-MM-DD'),
       } })
@@ -94,7 +96,7 @@ export default function HistoryPage({ embedded = false } = {}) {
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, search, category, eventType, branchName, employeeName, period, entityType, entityId, columnSearch])
+  }, [page, pageSize, search, category, eventType, branchName, employeeName, period, entityType, entityId, columnSearch, sorting])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -193,9 +195,18 @@ export default function HistoryPage({ embedded = false } = {}) {
     <Table
       rowKey="id"
       dataSource={items}
-      columns={columns}
+      columns={columns.map((column) => ({ ...column, sorter: true,
+        key: column.key || column.dataIndex,
+        sortOrder: sorting.key === (column.key || column.dataIndex) ? sorting.order : null,
+      }))}
       loading={loading}
       size="small"
+      locale={{ triggerAsc: 'По возрастанию: А → Я, 0 → 9', triggerDesc: 'По убыванию: Я → А, 9 → 0', cancelSort: 'Вернуть порядок по дате' }}
+      onChange={(_, __, sorter, extra) => {
+        if (extra.action !== 'sort') return
+        setSorting(sorter.order ? { key: sorter.columnKey, order: sorter.order } : { key: null, order: null })
+        setPage(1)
+      }}
       scroll={{ x: 'max-content' }}
       expandable={{ expandedRowRender: details, rowExpandable: (event) => Boolean(event.details || Object.keys(event.changes || {}).length) }}
       pagination={{

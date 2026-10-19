@@ -1,0 +1,5 @@
+[
+  {"inventory_number": "1-00001", "category": "Компьютеры", "name": "EXAMPLE-PC-01", "serial_number": "EXAMPLE-SERIAL-001"},
+  {"inventory_number": "1-00002", "category": "Мониторы", "name": "Example monitor", "serial_number": "EXAMPLE-SERIAL-002"},
+  {"inventory_number": "1-00003", "category": "Компьютеры", "name": "EXAMPLE-PC-02", "serial_number": null}
+]

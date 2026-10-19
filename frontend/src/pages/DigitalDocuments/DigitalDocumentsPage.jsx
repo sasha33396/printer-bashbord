@@ -74,8 +74,6 @@ function RegisterTab({ kind, refreshKey }) {
     ...config.fields.map((field, index) => ({
       title: field.label, dataIndex: field.key, key: field.key, width: field.width,
       fixed: index === 0 ? 'left' : undefined,
-      sorter: ['date', 'datetime'].includes(field.type)
-        ? (a, b) => String(a[field.key] || '').localeCompare(String(b[field.key] || '')) : undefined,
       defaultSortOrder: field.key === 'valid_to' ? 'ascend' : undefined,
       render: (value, row) => field.key === config.titleKey
         ? <Button type="link" style={{ padding: 0, maxWidth: '100%', height: 'auto', textAlign: 'left', whiteSpace: 'normal' }}

@@ -4,3 +4,15 @@ __pycache__
 .git
 data/
 *.db
+*.db-*
+*.sqlite*
+.env
+.env.*
+tests/
+inventory_numbers_keep.json
+equipment_photos/
+repair_invoices/
+*.pem
+*.key
+*.p12
+*.pfx

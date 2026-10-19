@@ -10,9 +10,12 @@ services:
     ports:
       - "0.0.0.0:8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./data/printer_dashboard.db
-      - PHOTO_DIRECTORY=/app/equipment_photos
-      - REPAIR_INVOICE_DIRECTORY=/app/data/repair_invoices
+      DATABASE_URL: sqlite:///./data/printer_dashboard.db
+      PHOTO_DIRECTORY: /app/equipment_photos
+      REPAIR_INVOICE_DIRECTORY: /app/data/repair_invoices
+      ADMIN_LOGIN: ${ADMIN_LOGIN:?Set ADMIN_LOGIN in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
 
   frontend:
     build: ./frontend

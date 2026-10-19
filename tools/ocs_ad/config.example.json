@@ -1,8 +1,8 @@
 {
-  "ocs_url": "http://172.16.10.122/ocsapi/v1",
-  "app_url": "http://172.16.51.73:3000",
-  "ad_server": "Server1.ruskon.local",
-  "ad_domain": "ruskon.local",
+  "ocs_url": "http://192.0.2.20/ocsapi/v1",
+  "app_url": "http://192.0.2.30:3000",
+  "ad_server": "dc1.example.test",
+  "ad_domain": "example.test",
   "ocs_timezone": "+04:00",
   "source_key": "main",
   "max_age_days": 30,
@@ -13,10 +13,6 @@
   "import_token_env": "OCS_AD_IMPORT_TOKEN",
   "output_directory": "output",
   "excluded_logins": ["administrator", "admin"],
-  "computer_matches": {"555": {"name": "OP-KRD-1"}},
-  "laptop_names": [
-    "Notebook-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
-    "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",
-    "Notebook-sar1", "Ershov-Note"
-  ]
+  "computer_matches": {},
+  "laptop_names": []
 }

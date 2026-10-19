@@ -100,3 +100,58 @@ class TableFiltersApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/history', params={'entity_search': '%'}).json()['total'], 2)
         self.assertEqual(self.client.get('/api/history', params={'entity_search': '_'}).json()['total'], 0)
         self.assertEqual(self.client.get('/api/history', params={'movement_search': '_A'}).json()['total'], 4)
+
+    def test_history_sorting_runs_before_pagination_and_combines_with_filters(self):
+        with self.sessions() as db:
+            for index in range(65, 0, -1):
+                db.add(EquipmentEvent(occurred_at=datetime(2026, 10, 1), category='equipment',
+                    event_type='updated', entity_type='warehouse_item', entity_id=index,
+                    title=f'Изменение {index}', entity_name='Sort fixture',
+                    inventory_number=f'1-{index:05d}', employee_name=f'Сотрудник {index}',
+                    actor=f'user{index}', from_value=f'Кабинет {index}', to_value='Склад'))
+            db.commit()
+        for field in ('employee_name', 'actor', 'entity', 'direction', 'event'):
+            for order, expected in (('ascend', list(range(1, 66))), ('descend', list(range(65, 0, -1)))):
+                with self.subTest(field=field, order=order):
+                    params = {'sort_by': field, 'sort_order': order, 'page_size': 50, 'entity_search': 'Sort fixture'}
+                    first = self.client.get('/api/history', params=params)
+                    self.assertEqual(first.status_code, 200, first.text)
+                    second = self.client.get('/api/history', params={**params, 'page': 2})
+                    self.assertEqual(second.status_code, 200, second.text)
+                    self.assertEqual(first.json()['total'], 65)
+                    actual = first.json()['items'] + second.json()['items']
+                    self.assertEqual([item['entity_id'] for item in actual], expected)
+
+    def test_history_russian_sort_ignores_case_orders_yo_and_keeps_missing_values_last(self):
+        names = ['Яковлев', 'Жуков', 'ёлкин', 'Егоров', 'абрамов', None, '']
+        with self.sessions() as db:
+            for index, name in enumerate(names):
+                db.add(EquipmentEvent(occurred_at=datetime(2026, 10, 1), category='equipment',
+                    event_type='updated', entity_type='warehouse_item', entity_id=index,
+                    title='Изменено', entity_name='Оборудование', employee_name=name))
+            db.commit()
+        for order, expected in (('ascend', ['абрамов', 'Егоров', 'ёлкин', 'Жуков', 'Яковлев']),
+                                ('descend', ['Яковлев', 'Жуков', 'ёлкин', 'Егоров', 'абрамов'])):
+            response = self.client.get('/api/history', params={'sort_by': 'employee_name', 'sort_order': order})
+            self.assertEqual(response.status_code, 200, response.text)
+            actual = [item['employee_name'] for item in response.json()['items']]
+            self.assertEqual(actual[:5], expected)
+            self.assertEqual(set(actual[5:]), {None, ''})
+
+    def test_history_category_sorts_by_russian_label_and_dates_by_chronology(self):
+        with self.sessions() as db:
+            for index, category in enumerate(('device', 'stock', 'cartridge', 'equipment', 'repair', 'workplace')):
+                db.add(EquipmentEvent(occurred_at=datetime(2025 + index % 2, 12 - index, 1), category=category,
+                    event_type='updated', entity_type='warehouse_item', title='Изменено', entity_name='Оборудование'))
+            db.commit()
+        params = {'sort_by': 'category', 'sort_order': 'ascend'}
+        actual = self.client.get('/api/history', params=params).json()['items']
+        expected = ['cartridge', 'equipment', 'workplace', 'repair', 'stock', 'device']
+        self.assertEqual([item['category'] for item in actual], expected)
+        response = self.client.get('/api/history', params={'sort_by': 'occurred_at', 'sort_order': 'ascend'})
+        dates = [item['occurred_at'] for item in response.json()['items']]
+        self.assertEqual(dates, sorted(dates))
+
+    def test_history_rejects_unknown_sort_fields_and_directions(self):
+        self.assertEqual(self.client.get('/api/history', params={'sort_by': 'not_a_column'}).status_code, 422)
+        self.assertEqual(self.client.get('/api/history', params={'sort_order': 'sideways'}).status_code, 422)

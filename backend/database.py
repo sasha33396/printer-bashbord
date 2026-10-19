@@ -21,6 +21,22 @@ def initialize_database():
     Base.metadata.create_all(bind=engine)
     # create_all does not add columns to existing installations.
     with engine.begin() as connection:
+        if 'network_json' not in {column['name'] for column in inspect(connection).get_columns('map_floors')}:
+            connection.execute(text("ALTER TABLE map_floors ADD COLUMN network_json TEXT NOT NULL DEFAULT '{\"nodes\":[],\"links\":[]}'"))
+        marker_columns = {column["name"] for column in inspect(connection).get_columns("map_markers")}
+        for name, sql_type in (("room_id", "VARCHAR(80)"), ("locked", "BOOLEAN NOT NULL DEFAULT 0"), ("group_id", "VARCHAR(80)")):
+            if name not in marker_columns:
+                connection.execute(text(f"ALTER TABLE map_markers ADD COLUMN {name} {sql_type}"))
+        # Optional cartridge tracking fields preserve existing cycles as unknown.
+        for table, additions in (
+            ("cartridges", (("expected_return_date", "DATE"), ("installation_page_counter", "INTEGER"),
+                            ("is_deleted", "BOOLEAN NOT NULL DEFAULT 0"))),
+            ("cartridge_operations", (("page_counter", "INTEGER"), ("pages_printed", "INTEGER"), ("expected_return_date", "DATE"))),
+        ):
+            existing = {column["name"] for column in inspect(connection).get_columns(table)}
+            for name, sql_type in additions:
+                if name not in existing:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
         stock_columns = {column["name"] for column in inspect(connection).get_columns("stock_movements")}
         if "cartridge_conversion" not in stock_columns:
             connection.execute(text("ALTER TABLE stock_movements ADD COLUMN cartridge_conversion BOOLEAN NOT NULL DEFAULT 0"))

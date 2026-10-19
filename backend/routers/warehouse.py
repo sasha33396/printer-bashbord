@@ -154,6 +154,7 @@ def _current_quantity(db: Session, item_id: int) -> int:
 def _item_read(item: WarehouseItem, quantity: int, workplace=None) -> WarehouseItemRead:
     return WarehouseItemRead(
         cartridge_managed=item.cartridge is not None,
+        cartridge_deleted=bool(item.cartridge and item.cartridge.is_deleted),
         id=item.id,
         sku=item.sku,
         name=item.name,
@@ -597,6 +598,8 @@ def restore_item(
     current_user: dict = _auth,
 ):
     item = _get_item_or_404(db, item_id)
+    if item.cartridge and item.cartridge.is_deleted:
+        raise HTTPException(409, "Удалённую карточку картриджа нельзя восстановить как обычное оборудование")
     if item.cartridge and item.cartridge.state == "written_off":
         raise HTTPException(409, "Списанный картридж нельзя восстановить как обычное оборудование")
     if not item.is_archived:

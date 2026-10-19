@@ -125,13 +125,14 @@ class MapTests(unittest.TestCase):
         self.assertTrue(first['has_background'])
         self.assertEqual(self.client.get(f"/api/maps/floors/{first['id']}/background").content, PNG)
         second = self.save(first, image=('second.png', PNG + b'second', 'image/png'), background_opacity=0.7)
-        self.assertEqual(len(list(self.root.rglob('*.png'))), 1)
+        self.assertEqual(len(list(self.root.rglob('*.png'))), 2)
         self.assertEqual(second['background_opacity'], 0.7)
         self.save(second, status=422, image=('bad.png', PNG, 'image/png'), markers=[self.marker('warehouse_item', self.quantity)])
-        self.assertEqual(len(list(self.root.rglob('*.png'))), 1)
+        self.assertEqual(len(list(self.root.rglob('*.png'))), 2)
         removed = self.save(second, remove_background=True)
         self.assertFalse(removed['has_background'])
-        self.assertEqual(list(self.root.rglob('*.png')), [])
+        # Previous backgrounds remain available for restoring saved versions.
+        self.assertEqual(len(list(self.root.rglob('*.png'))), 2)
 
     def test_rejects_invalid_images_and_large_uploads(self):
         self.save(status=422, image=('evil.svg', b'<svg onload="bad"/>', 'image/svg+xml'))
@@ -222,6 +223,121 @@ class MapTests(unittest.TestCase):
         self.app.dependency_overrides.pop(get_current_user)
         self.assertEqual(self.client.get('/api/maps/buildings').status_code, 401)
         self.assertEqual(self.client.get(f"/api/maps/floors/{self.floor['id']}/background").status_code, 401)
+
+    def test_employee_catalog_includes_people_with_and_without_workplaces_and_inactive_people(self):
+        with self.sessions() as db:
+            employee = Employee(full_name='Петров без места', branch_id=self.other_branch)
+            inactive = Employee(full_name='Неактивный сотрудник', is_active=False)
+            db.add_all([employee, inactive]); db.commit()
+            unassigned_id, inactive_id = employee.id, inactive.id
+        self.save(markers=[self.marker()])
+        people = {row['entity_id']: row for row in self.client.get('/api/maps/catalog').json() if row['entity_type'] == 'employee'}
+        self.assertEqual(people[self.employee]['placement_target'], {'entity_type': 'workplace', 'entity_id': self.workplace})
+        self.assertTrue(people[self.employee]['position']['inherited'])
+        self.assertEqual(people[self.employee]['position']['entity_type'], 'workplace')
+        self.assertIsNone(people[unassigned_id]['position'])
+        self.assertEqual(people[unassigned_id]['unplaced_reason'], 'Рабочее место не назначено')
+        self.assertFalse(people[inactive_id]['available'])
+        self.save(self.get_floor(), status=422, markers=[self.marker('employee', self.employee)])
+
+    def test_rooms_have_metadata_explicit_memberships_and_live_search_content(self):
+        with self.sessions() as db:
+            department = db.query(Department).filter_by(branch_id=self.branch).one()
+            department_id = department.id
+        room = {'id': 'cabinet', 'kind': 'room', 'x': 0, 'y': 0, 'width': 15, 'height': 12,
+                'number': '205', 'label': 'Бухгалтерия', 'department_id': department_id, 'notes': 'Вход слева', 'locked': True, 'group_id': 'group-a'}
+        saved = self.save(shapes=[room], markers=[self.marker(room_id='cabinet', locked=True, group_id='group-b')])
+        self.assertEqual(saved['shapes'][0]['number'], '205')
+        self.assertEqual(saved['shapes'][0]['department_id'], department_id)
+        self.assertEqual(saved['markers'][0]['room_id'], 'cabinet')
+        self.assertTrue(saved['markers'][0]['locked'])
+        cabinet = next(row for row in self.client.get('/api/maps/catalog').json() if row['entity_type'] == 'room')
+        self.assertIn('205', cabinet['name'])
+        self.assertEqual(cabinet['position']['entity_type'], 'room')
+        self.assertEqual(cabinet['employee_name'], 'Иванова Анна')
+        self.assertTrue(any(asset.get('inventory_number') == '1-00401' for asset in cabinet['equipment']))
+        with self.sessions() as db:
+            db.get(Employee, self.employee).full_name = 'Новое ФИО'
+            db.commit()
+        cabinet = next(row for row in self.client.get('/api/maps/catalog').json() if row['entity_type'] == 'room')
+        self.assertEqual(cabinet['employee_name'], 'Новое ФИО')
+
+    def test_rejects_duplicate_room_numbers_invalid_room_links_and_foreign_departments(self):
+        room = {'id': 'a', 'kind': 'room', 'x': 0, 'y': 0, 'width': 10, 'height': 10, 'number': '205'}
+        with self.sessions() as db:
+            department = Department(name='Чужой отдел', branch_id=self.other_branch)
+            db.add(department); db.commit(); foreign_department = department.id
+        for changes in (
+            {'shapes': [room, {**room, 'id': 'b'}]},
+            {'shapes': [room], 'markers': [self.marker(room_id='missing')]},
+            {'shapes': [room], 'markers': [self.marker(room_id='a', x=20)]},
+            {'shapes': [{**room, 'department_id': foreign_department}]},
+            {'shapes': [{'id': 'desk', 'kind': 'desk', 'x': 39, 'y': 1, 'width': 3, 'height': 1}]},
+        ):
+            with self.subTest(changes=changes):
+                self.save(status=422, **changes)
+                self.assertEqual(self.get_floor()['revision'], 1)
+
+    def test_versions_preserve_geometry_authors_labels_and_all_backgrounds(self):
+        first = self.save(markers=[self.marker()], image=('first.png', PNG, 'image/png'), version_label='Расстановка 1')
+        second = self.save(first, markers=[self.marker(x=10)], image=('second.png', PNG + b'next', 'image/png'), version_label='Расстановка 2')
+        url = f"/api/maps/floors/{first['id']}/versions"
+        versions = self.client.get(url).json()
+        self.assertEqual(versions['total'], 3)
+        self.assertEqual([row['revision'] for row in versions['items']], [3, 2, 1])
+        self.assertEqual(versions['items'][0]['saved_by'], 'map-editor')
+        self.assertEqual(versions['items'][0]['label'], 'Расстановка 2')
+        historical = self.client.get(url + '/2').json()
+        self.assertEqual(historical['document']['markers'][0]['x'], 5)
+        self.assertNotIn('entity', historical['document']['markers'][0])
+        self.assertEqual(self.client.get(url + '/2/background').content, PNG)
+        self.assertEqual(self.client.get(url + '/3/background').content, PNG + b'next')
+        restored = self.save(second, **historical['document'], background_revision=2, version_label='Восстановление')
+        self.assertEqual(restored['revision'], 4)
+        self.assertEqual(restored['markers'][0]['x'], 5)
+        self.assertEqual(self.client.get(f"/api/maps/floors/{first['id']}/background").content, PNG)
+        self.save(second, status=409, background_revision=2)
+        self.assertEqual(self.client.get(url + '/3/background').content, PNG + b'next')
+        page = self.client.get(url, params={'page': 2, 'page_size': 2}).json()
+        self.assertEqual([row['revision'] for row in page['items']], [2, 1])
+
+    def test_transfers_preserve_source_and_destination_versions_and_room_links(self):
+        original = self.save(markers=[self.marker()])
+        destination = self.new_floor('2 этаж')
+        moved = self.save(destination, markers=[self.marker(from_floor_id=original['id'], from_revision=original['revision'])])
+        source_history = f"/api/maps/floors/{original['id']}/versions"
+        self.assertEqual(len(self.client.get(source_history + '/2').json()['document']['markers']), 1)
+        self.assertEqual(self.client.get(source_history + '/3').json()['document']['markers'], [])
+        # Restoring a previous document cannot take a mark back without consent.
+        historical = self.client.get(source_history + '/2').json()['document']
+        self.save(self.get_floor(), status=409, **historical)
+        self.assertEqual(self.get_floor(moved['id'])['markers'][0]['entity_id'], self.workplace)
+
+    def test_deleting_floor_removes_version_backgrounds_but_keeps_other_floors(self):
+        first = self.save(image=('first.png', PNG, 'image/png'))
+        second = self.save(first, image=('second.png', PNG + b'next', 'image/png'))
+        other = self.new_floor('2 этаж')
+        self.save(other, image=('other.png', PNG + b'other', 'image/png'))
+        self.assertEqual(len(list(self.root.rglob('*.png'))), 3)
+        self.assertEqual(self.client.delete(f"/api/maps/floors/{second['id']}", params={'revision': second['revision']}).status_code, 204)
+        self.assertEqual(len(list(self.root.rglob('*.png'))), 1)
+        self.assertEqual(self.client.get(f"/api/maps/floors/{other['id']}/background").content, PNG + b'other')
+
+    def test_marker_migration_preserves_existing_positions_and_is_repeatable(self):
+        with self.engine.begin() as connection:
+            connection.execute(text('DROP TABLE map_markers'))
+            connection.execute(text('''CREATE TABLE map_markers (id INTEGER PRIMARY KEY, floor_id INTEGER NOT NULL,
+                entity_type VARCHAR(30) NOT NULL, entity_id INTEGER NOT NULL, entity_name VARCHAR(500) NOT NULL,
+                x FLOAT NOT NULL, y FLOAT NOT NULL, rotation FLOAT NOT NULL DEFAULT 0)'''))
+            connection.execute(text("INSERT INTO map_markers VALUES (1, :floor, 'workplace', :place, 'РМ', 3, 4, 0)"),
+                               {'floor': self.floor['id'], 'place': self.workplace})
+        with patch('database.engine', self.engine):
+            initialize_database(); initialize_database()
+        marker = self.get_floor()['markers'][0]
+        self.assertEqual((marker['x'], marker['y']), (3, 4))
+        self.assertFalse(marker['locked'])
+        self.assertIsNone(marker['room_id'])
+        self.assertIsNone(marker['group_id'])
 
 
 if __name__ == '__main__':

@@ -47,14 +47,14 @@ class OcsAdImportTests(unittest.TestCase):
         self.record = {
             "ocs_id": 94, "computer_name": "ws-test-01",
             "last_inventory_at": datetime.now(timezone.utc).isoformat(),
-            "domain": "RUSKON.LOCAL", "ad_login": " M.SHUTOV ",
-            "ad_guid": "3dc0fec6-9dfa-40dd-b115-cf6eaa9b4642",
-            "full_name": "Шутов Максим", "ad_enabled": True,
+            "domain": "EXAMPLE.TEST", "ad_login": " I.IVANOV ",
+            "ad_guid": "00000000-0000-4000-8000-000000000001",
+            "full_name": "Иванов Иван", "ad_enabled": True,
             "computer": {
                 "manufacturer": "Acer", "model": "Aspire XC-1660",
                 "serial_number": "PC-001", "ram_gb": 4,
-                "processor": "Intel Core i3-10105", "ip_address": "172.16.55.197",
-                "mac_address": "1c:69:7a:9e:c7:ac", "os_name": "Windows 11 Pro",
+                "processor": "Intel Core i3-10105", "ip_address": "192.0.2.10",
+                "mac_address": "02:00:00:00:00:10", "os_name": "Windows 11 Pro",
             },
             "monitors": [{"ocs_id": 72, "name": "S24D300", "manufacturer": "Samsung", "serial_number": "MON-001"}],
         }
@@ -97,7 +97,7 @@ class OcsAdImportTests(unittest.TestCase):
 
     def laptop_record(self):
         laptop = copy.deepcopy(self.record)
-        laptop.update(ocs_id=95, computer_name="NOTE-BUH-2", monitors=[])
+        laptop.update(ocs_id=95, computer_name="EXAMPLE-LAPTOP-05", monitors=[])
         laptop["computer"].update(serial_number="LAP-001", form_factor="laptop")
         return laptop
 
@@ -166,13 +166,13 @@ class OcsAdImportTests(unittest.TestCase):
 
     def test_explicit_unique_name_match_links_existing_card_and_repeats(self):
         with self.sessions() as db:
-            item = WarehouseItem(name="OP-KRD-1", category="Компьютеры", tracking_type="asset", inventory_number="EXISTING-1")
+            item = WarehouseItem(name="EXAMPLE-PC-01", category="Компьютеры", tracking_type="asset", inventory_number="EXISTING-1")
             db.add(item)
             db.commit()
             ident = item.id
         record = copy.deepcopy(self.record)
-        record.update(ocs_id=555, computer_name="OP-KRD-1", monitors=[])
-        record["computer"].update(serial_number=None, match_existing_name="op-krd-1")
+        record.update(ocs_id=555, computer_name="EXAMPLE-PC-01", monitors=[])
+        record["computer"].update(serial_number=None, match_existing_name="example-pc-01")
         preview = self.submit([record], dry_run=True)
         self.assertEqual(preview["conflicts"], 0)
         self.assertEqual(preview["computers_created"], 0)
@@ -212,7 +212,7 @@ class OcsAdImportTests(unittest.TestCase):
         with self.sessions() as db:
             employee = db.query(Employee).one()
             workplace = db.query(Workplace).one()
-            self.assertEqual((employee.ad_login, employee.ad_domain), ("m.shutov", "ruskon.local"))
+            self.assertEqual((employee.ad_login, employee.ad_domain), ("i.ivanov", "example.test"))
             self.assertEqual(workplace.employee_id, employee.id)
             self.assertIsNone(workplace.branch_id)
             assets = db.query(WarehouseItem).order_by(WarehouseItem.id).all()
@@ -253,9 +253,9 @@ class OcsAdImportTests(unittest.TestCase):
 
     def test_confirmed_laptop_names_preview_apply_and_repeat_without_duplicates(self):
         names = (
-            "Notebook-RTI", "NOTEBOOK-CHPU-DISP", "LAPTOP-COM", "NOTE-PROXIMA-1",
-            "NOTE-BUH-2", "NOTE-HR-1", "UP-OP-NOTES1", "NOTE-WED-1",
-            "Notebook-sar1", "Ershov-Note",
+            "EXAMPLE-LAPTOP-01", "EXAMPLE-LAPTOP-02", "EXAMPLE-LAPTOP-03", "EXAMPLE-LAPTOP-04",
+            "EXAMPLE-LAPTOP-05", "EXAMPLE-LAPTOP-06", "EXAMPLE-LAPTOP-07", "EXAMPLE-LAPTOP-08",
+            "EXAMPLE-LAPTOP-09", "EXAMPLE-LAPTOP-10",
         )
         with patch.dict("os.environ", {"OCS_AD_LAPTOP_NAMES": ",".join(names)}):
             for index, name in enumerate(names):
@@ -279,12 +279,12 @@ class OcsAdImportTests(unittest.TestCase):
             repeated = self.submit([record])
             self.assertEqual(repeated["records"][0]["status"], "unchanged")
 
-    def test_default_known_laptop_names_work_without_env_configuration(self):
+    def test_laptop_names_require_explicit_env_configuration(self):
         with patch.dict("os.environ"):
             os.environ.pop("OCS_AD_LAPTOP_NAMES", None)
             record = copy.deepcopy(self.record)
-            record["computer_name"] = "Ershov-Note"
-            self.assertEqual(self.submit([record])["records"][0]["computer_category"], "Ноутбуки")
+            record["computer_name"] = "EXAMPLE-LAPTOP-10"
+            self.assertEqual(self.submit([record])["records"][0]["computer_category"], "Компьютеры")
 
     def test_explicit_laptop_type_survives_rename_without_type_hint(self):
         record = copy.deepcopy(self.record)
@@ -300,7 +300,7 @@ class OcsAdImportTests(unittest.TestCase):
 
     def test_explicit_desktop_type_overrides_known_laptop_name(self):
         record = copy.deepcopy(self.record)
-        record["computer_name"] = "Notebook-RTI"
+        record["computer_name"] = "EXAMPLE-LAPTOP-01"
         record["computer"]["form_factor"] = "desktop"
         self.assertEqual(self.submit([record])["records"][0]["computer_category"], "Компьютеры")
         record["computer"]["form_factor"] = "tablet"
@@ -311,7 +311,7 @@ class OcsAdImportTests(unittest.TestCase):
         laptop = copy.deepcopy(self.record)
         laptop["computer_name"] = "MOBILE-SERVICE"
         desktop = self.second_record()
-        desktop["computer_name"] = "Notebook-RTI"
+        desktop["computer_name"] = "EXAMPLE-LAPTOP-01"
         with patch.dict("os.environ", {"OCS_AD_LAPTOP_NAMES": " mobile-service,other "}):
             report = self.submit([laptop, desktop])
         self.assertEqual([row["computer_category"] for row in report["records"]], ["Ноутбуки", "Компьютеры"])
@@ -439,7 +439,7 @@ class OcsAdImportTests(unittest.TestCase):
         report = self.submit([record])
         self.assertEqual(report["skipped"], 1)
         with self.sessions() as db:
-            self.assertEqual(db.query(Employee).one().full_name, "Шутов Максим")
+            self.assertEqual(db.query(Employee).one().full_name, "Иванов Иван")
             self.assertEqual(db.query(WarehouseItem).filter_by(category="Компьютеры").one().ram_gb, 4)
 
     def test_manual_fields_are_preserved_but_managed_fields_update(self):
@@ -482,7 +482,7 @@ class OcsAdImportTests(unittest.TestCase):
         self.assertEqual(self.submit([record])["conflicts"], 1)
 
     def test_manual_employee_requires_explicit_matching_and_keeps_manual_fields(self):
-        created = self.client.post("/api/employees", json={"full_name": "Шутов Максим", "position": "Руководитель"})
+        created = self.client.post("/api/employees", json={"full_name": "Иванов Иван", "position": "Руководитель"})
         self.assertEqual(created.status_code, 201)
         self.assertEqual(self.submit()["conflicts"], 1)
         record = copy.deepcopy(self.record)
@@ -530,14 +530,14 @@ class OcsAdImportTests(unittest.TestCase):
             self.assertEqual(self.client.post(path, json=payload).status_code, 422)
 
     def test_employee_login_normalization_search_and_uniqueness(self):
-        employee = self.client.post("/api/employees", json={"full_name": "Первый", "ad_login": " M.SHUTOV ", "ad_domain": "RUSKON.LOCAL."})
+        employee = self.client.post("/api/employees", json={"full_name": "Первый", "ad_login": " I.IVANOV ", "ad_domain": "EXAMPLE.TEST."})
         self.assertEqual(employee.status_code, 201, employee.text)
-        duplicate = self.client.post("/api/employees", json={"full_name": "Второй", "ad_login": "m.shutov", "ad_domain": "ruskon.local"})
+        duplicate = self.client.post("/api/employees", json={"full_name": "Второй", "ad_login": "i.ivanov", "ad_domain": "example.test"})
         self.assertEqual(duplicate.status_code, 409)
-        found = self.client.get("/api/employees", params={"ad_login": "M.SHUTOV", "ad_domain": "RUSKON.LOCAL"})
+        found = self.client.get("/api/employees", params={"ad_login": "I.IVANOV", "ad_domain": "EXAMPLE.TEST"})
         self.assertEqual([record["id"] for record in found.json()], [employee.json()["id"]])
         with self.sessions() as db:
-            db.add(Employee(full_name="Обход API", ad_login="M.SHUTOV", ad_domain="ruskon.local"))
+            db.add(Employee(full_name="Обход API", ad_login="I.IVANOV", ad_domain="example.test"))
             with self.assertRaises(IntegrityError):
                 db.commit()
 
