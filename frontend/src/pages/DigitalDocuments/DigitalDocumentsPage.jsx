@@ -1,7 +1,10 @@
+import { useRecordNavigation, useRecordPanel } from '../../components/RecordPanelContext'
+import PageHeading from '../../components/PageHeading'
+import KpiCards from '../../components/KpiCards'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Input, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message } from 'antd'
+import { Button, Input, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message, Alert } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, UndoOutlined, UploadOutlined } from '@ant-design/icons'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import api from '../../api/api'
 import Table from '../../components/FilterableTable'
 import DigitalDocumentEditor from '../../components/DigitalDocumentEditor'
@@ -10,10 +13,12 @@ import { DOCUMENTS, TERM_STATUS, displayField, documentError, documentMatches } 
 
 function RegisterTab({ kind, refreshKey }) {
   const config = DOCUMENTS[kind]
-  const navigate = useNavigate()
+  const navigate = useRecordNavigation()
+  const { revision, selected } = useRecordPanel()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [archived, setArchived] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [search, setSearch] = useState('')
   const [termFilter, setTermFilter] = useState()
   const [editorOpen, setEditorOpen] = useState(false)
@@ -25,18 +30,19 @@ function RegisterTab({ kind, refreshKey }) {
     currentRequest.current?.abort()
     const request = new AbortController()
     currentRequest.current = request
+    setLoadError(false)
     setLoading(true)
     try {
       const { data } = await api.get(config.endpoint, { params: { archived }, signal: request.signal })
       if (!request.signal.aborted) setRows(data)
     } catch (error) {
-      if (!request.signal.aborted) message.error(documentError(error, 'Не удалось загрузить реестр'))
+      if (!request.signal.aborted) { setLoadError(true); message.error(documentError(error, 'Не удалось загрузить реестр')) }
     } finally {
       if (!request.signal.aborted) setLoading(false)
     }
   }, [config, archived])
 
-  useEffect(() => { load(); return () => currentRequest.current?.abort() }, [load, refreshKey])
+  useEffect(() => { load(); return () => currentRequest.current?.abort() }, [load, refreshKey, revision])
 
   const edit = async (row) => {
     setBusyId(row.id)
@@ -94,6 +100,13 @@ function RegisterTab({ kind, refreshKey }) {
   ]
 
   return <>
+    {loadError && <Alert className="page-alert" type="error" showIcon message="Не удалось загрузить данные. Проверьте соединение и повторите запрос." action={<Button onClick={() => load()}>Повторить</Button>} />}
+    <KpiCards loading={loading} items={[
+      { label: archived ? 'Записей в архиве' : `Записей ${config.label}`, value: loadError ? null : rows.length },
+      { label: 'Срок действует', value: loadError ? null : rows.filter((row) => row.term_status === 'valid').length, tone: 'green' },
+      { label: 'Скоро истекают', value: loadError ? null : rows.filter((row) => row.term_status === 'expiring').length, tone: 'amber', note: 'Не более 30 дней до окончания' },
+      { label: 'Срок истёк', value: loadError ? null : rows.filter((row) => row.term_status === 'expired').length, tone: 'red' },
+    ]} />
     <div className="page-toolbar" style={{ marginBottom: 16 }}>
       <Segmented value={archived} options={[{ label: 'Актуальные', value: false }, { label: 'Архив', value: true }]}
         onChange={setArchived} disabled={busyId !== null} />
@@ -102,6 +115,7 @@ function RegisterTab({ kind, refreshKey }) {
       <Select placeholder="Все сроки" allowClear value={termFilter} onChange={setTermFilter} style={{ width: 200 }}
         options={Object.entries(TERM_STATUS).map(([value, item]) => ({ value, label: item.label }))} />
       <div className="toolbar-actions">
+        <Button onClick={() => { setSearch(''); setTermFilter(undefined) }}>Сбросить</Button>
         <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>Обновить</Button>
         {!archived && <Button type="primary" icon={<PlusOutlined />} disabled={busyId !== null}
           onClick={() => { setEditing(null); setEditorOpen(true) }}>Добавить {config.singular}</Button>}
@@ -111,7 +125,9 @@ function RegisterTab({ kind, refreshKey }) {
       Отметка «Срок» рассчитывается по датам. «Скоро истекает» — осталось не более 30 дней.
     </Typography.Paragraph>
     <Table key={`${kind}-${archived}`} rowKey="id" dataSource={filtered} columns={columns} loading={loading}
-      size="small" scroll={{ x: 'max-content' }} pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (total) => `Записей: ${total}` }} />
+      rowClassName={(row) => selected === `/digital-documents/${kind}/${row.id}` ? 'selected-record-row' : ''}
+      onRow={(row) => ({ onClick: (event) => { if (!event.target.closest('button,a,input')) navigate(`/digital-documents/${kind}/${row.id}`) } })}
+      size="small" scroll={{ x: 'max-content' }} pagination={{ defaultPageSize: 25, showSizeChanger: true, showTotal: (total) => `Записей: ${total}` }} />
     <DigitalDocumentEditor kind={kind} open={editorOpen} editing={editing}
       onClose={() => setEditorOpen(false)} onSaved={() => { setEditorOpen(false); load() }} />
   </>
@@ -119,15 +135,13 @@ function RegisterTab({ kind, refreshKey }) {
 
 export default function DigitalDocumentsPage() {
   const { kind } = useParams()
-  const navigate = useNavigate()
+  const navigate = useRecordNavigation()
   const [importOpen, setImportOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   if (!Object.hasOwn(DOCUMENTS, kind)) return <Navigate to="/digital-documents/ecp" replace />
   return <>
-    <div className="page-toolbar" style={{ marginBottom: 16 }}>
-      <Typography.Title level={3} style={{ margin: 0 }}>Учет ЭЦП и МЧД</Typography.Title>
-      <div className="toolbar-actions"><Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>Импорт XLSX</Button></div>
-    </div>
+    <PageHeading title="ЭЦП и МЧД" description="Реестры электронных подписей и машиночитаемых доверенностей"
+      actions={<Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>Импорт XLSX</Button>} />
     <Tabs activeKey={kind} destroyInactiveTabPane onChange={(key) => navigate(`/digital-documents/${key}`)}
       items={Object.entries(DOCUMENTS).map(([key, config]) => ({ key, label: config.label, children: <RegisterTab kind={key} refreshKey={refreshKey} /> }))} />
     <DigitalDocumentImportModal open={importOpen} onClose={() => setImportOpen(false)} onImported={() => setRefreshKey((value) => value + 1)} />

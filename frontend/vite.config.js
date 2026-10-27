@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   envPrefix: ['VITE_', 'REACT_APP_'],
   server: {
+    watch: { ignored: ['**/.cache/**', '**/.venv/**'] },
     host: '0.0.0.0',
     port: 3000,
     proxy: {

@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import api from '../../api/api'
 import { serverChoiceFilter, serverTextFilter } from '../../components/ColumnSearchFilter'
+import PageHeading from '../../components/PageHeading'
 
 const CATEGORY = {
   equipment: { label: 'Оборудование', color: 'blue' },
@@ -11,6 +12,7 @@ const CATEGORY = {
   workplace: { label: 'Рабочее место', color: 'purple' },
   repair: { label: 'Ремонт', color: 'orange' },
   stock: { label: 'Складская операция', color: 'green' },
+  cartridge: { label: 'Картридж', color: 'magenta' },
 }
 
 const EVENT_TYPES = {
@@ -22,6 +24,11 @@ const EVENT_TYPES = {
   repair_created: 'Ремонт добавлен', repair_updated: 'Ремонт изменён', repair_completed: 'Ремонт завершён',
   repair_impossible: 'Ремонт невозможен', repair_deleted: 'Ремонт удалён',
   repair_invoice_attached: 'Счёт прикреплён', repair_invoice_removed: 'Счёт удалён',
+  cartridge_received: 'Картридж поступил', cartridge_registered: 'Поштучный учёт картриджа',
+  cartridge_transfer: 'Передача картриджа', cartridge_install: 'Установка картриджа',
+  cartridge_remove: 'Снятие картриджа', cartridge_send_refill: 'Отправка на заправку',
+  cartridge_return_refill: 'Возврат с заправки', cartridge_defective: 'Неисправность картриджа',
+  cartridge_write_off: 'Списание картриджа',
 }
 
 function details(event) {
@@ -46,7 +53,7 @@ function formatValue(value) {
   return String(value)
 }
 
-export default function HistoryPage() {
+export default function HistoryPage({ embedded = false } = {}) {
   const location = useLocation()
   const navigate = useNavigate()
   const initial = useMemo(() => new URLSearchParams(location.search), [location.search])
@@ -56,6 +63,7 @@ export default function HistoryPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState('')
+  const [searchDraft, setSearchDraft] = useState('')
   const [category, setCategory] = useState()
   const [eventType, setEventType] = useState()
   const [branchName, setBranchName] = useState()
@@ -101,7 +109,8 @@ export default function HistoryPage() {
   const openEntity = (event) => {
     if (!event.entity_id) return
     if (event.entity_type === 'device') navigate(`/devices/${event.entity_id}`)
-    if (event.entity_type === 'warehouse_item') navigate(`/warehouse/items/${event.entity_id}`)
+    if (event.entity_type === 'warehouse_item') navigate(event.category === 'cartridge'
+      ? `/cartridges/${event.entity_id}` : `/warehouse/items/${event.entity_id}`)
   }
 
   const columns = [
@@ -143,11 +152,13 @@ export default function HistoryPage() {
   ]
 
   return <>
+    {!embedded && <PageHeading title="История движений" description="События оборудования, рабочих мест и ремонтов. Серверные фильтры и полный журнал изменений" />}
     <div className="page-toolbar history-toolbar">
-      <Typography.Title level={3} style={{ margin: 0 }}>История движений</Typography.Title>
       <Input.Search
         placeholder="Инв. номер, наименование, сотрудник"
         allowClear
+        value={searchDraft}
+        onChange={(event) => setSearchDraft(event.target.value)}
         onSearch={(value) => { setSearch(value); setPage(1) }}
         style={{ width: 300 }}
       />
@@ -176,6 +187,7 @@ export default function HistoryPage() {
         style={{ width: 210 }}
       />
       <DatePicker.RangePicker value={period} onChange={(value) => { setPeriod(value); setPage(1) }} format="DD.MM.YYYY" />
+      <Button onClick={() => { setSearch(''); setSearchDraft(''); setCategory(undefined); setEventType(undefined); setBranchName(undefined); setEmployeeName(undefined); setPeriod(undefined); setColumnSearch({}); setPage(1) }}>Сбросить фильтры</Button>
       {(entityType || entityId) && <Button onClick={() => navigate('/history')}>Показать всю историю</Button>}
     </div>
     <Table

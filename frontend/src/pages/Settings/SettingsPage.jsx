@@ -7,6 +7,7 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import api from '../../api/api'
 import EmployeesTab from './EmployeesTab'
+import PageHeading from '../../components/PageHeading'
 
 // ---------------------------------------------------------------------------
 // BranchesTab
@@ -119,12 +120,12 @@ function BranchesTab() {
         </Button>
       </div>
 
-      <Table
+      <Table searchable
         rowKey="id"
         dataSource={data}
         columns={columns}
         loading={loading}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
       />
 
       <Modal
@@ -271,12 +272,12 @@ function DepartmentsTab() {
         </Button>
       </div>
 
-      <Table
+      <Table searchable
         rowKey="id"
         dataSource={data}
         columns={columns}
         loading={loading}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
       />
 
       <Modal
@@ -398,12 +399,12 @@ function ManufacturersTab() {
         </Button>
       </div>
 
-      <Table
+      <Table searchable
         rowKey="id"
         dataSource={data}
         columns={columns}
         loading={loading}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
+        pagination={{ defaultPageSize: 20, hideOnSinglePage: true }}
       />
 
       <Modal
@@ -435,16 +436,16 @@ function ManufacturersTab() {
 // ---------------------------------------------------------------------------
 
 const TABS = [
+  { key: 'employees',     label: 'Сотрудники',      children: <EmployeesTab /> },
   { key: 'branches',      label: 'Филиалы',       children: <BranchesTab /> },
   { key: 'departments',   label: 'Отделы',         children: <DepartmentsTab /> },
-  { key: 'employees',     label: 'Сотрудники',      children: <EmployeesTab /> },
   { key: 'manufacturers', label: 'Производители',  children: <ManufacturersTab /> },
 ]
 
 export default function SettingsPage() {
   return (
     <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>Справочники</Typography.Title>
+      <PageHeading title="Настройки" description="Сотрудники, филиалы, отделы и производители оборудования" />
       <Tabs items={TABS} destroyInactiveTabPane />
     </>
   )

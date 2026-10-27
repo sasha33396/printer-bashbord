@@ -135,6 +135,7 @@ def available_assets(db: Session = Depends(get_db), _: dict = _auth):
             WarehouseItem.tracking_type == "asset",
             WarehouseItem.condition != "Списан",
             WarehouseItem.is_archived.is_(False),
+            ~WarehouseItem.cartridge.has(),
             ~WarehouseItem.id.in_(assigned_ids),
         )
         .order_by(WarehouseItem.category, WarehouseItem.name)
@@ -173,7 +174,7 @@ def transfer_asset(
     current_user: dict = _auth,
 ):
     item = db.get(WarehouseItem, item_id)
-    if not item or item.tracking_type != "asset" or item.is_archived:
+    if not item or item.tracking_type != "asset" or item.is_archived or item.cartridge:
         raise HTTPException(status_code=404, detail="Поштучное оборудование не найдено")
     target = _get(db, payload.workplace_id)
     if target.is_archived:
@@ -481,7 +482,7 @@ def assign_asset(
             detail="Нельзя добавить оборудование на неактивное рабочее место",
         )
     item = db.get(WarehouseItem, payload.item_id)
-    if not item or item.tracking_type != "asset":
+    if not item or item.tracking_type != "asset" or item.cartridge:
         raise HTTPException(status_code=422, detail="Выберите оборудование с поштучным учётом")
     existing = db.query(WorkplaceAssetAssignment).filter(
         WorkplaceAssetAssignment.item_id == item.id,

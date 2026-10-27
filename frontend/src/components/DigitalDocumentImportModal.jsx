@@ -109,7 +109,7 @@ export default function DigitalDocumentImportModal({ open, onClose, onImported }
         options={[{ label: 'Все строки', value: false }, { label: 'Ошибки и несовпадения', value: true }]} />
       <Table rowKey={(row) => `${row.kind}-${row.row}`} size="small"
         dataSource={onlyIssues ? report.rows.filter((row) => ['error', 'conflict'].includes(row.status)) : report.rows} columns={columns}
-        scroll={{ x: 1000 }} pagination={{ pageSize: 20, showSizeChanger: true }}
+        scroll={{ x: 1000 }} pagination={{ defaultPageSize: 20, showSizeChanger: true }}
         expandable={{ rowExpandable: (row) => Boolean(row.data || row.source_data), expandedRowRender: (row) => <Descriptions size="small" column={2} bordered>
           {DOCUMENTS[row.kind].fields.map((field) => <Descriptions.Item key={field.key} label={field.label}>
             <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{row.data ? displayField(field, row.data[field.key]) : row.source_data?.[field.key] ?? '—'}</span>

@@ -18,7 +18,7 @@ export default function LoginPage() {
       const { data } = await api.post('/auth/login', params)
       localStorage.setItem('token', data.access_token)
       const next = searchParams.get('next')
-      navigate(next?.startsWith('/') && !next.startsWith('//') ? next : '/devices', { replace: true })
+      navigate(next?.startsWith('/') && !next.startsWith('//') ? next : '/', { replace: true })
     } catch (err) {
       setError(
         err.response?.status === 401
@@ -31,25 +31,13 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      minHeight: '100vh',
-      background: '#f0f2f5',
-    }}>
-      <div className="login-card" style={{
-        width: 380,
-        background: '#fff',
-        borderRadius: 8,
-        padding: '40px 40px 32px',
-        boxShadow: '0 2px 16px rgba(0,0,0,0.10)',
-      }}>
+    <div className="login-page">
+      <div className="login-card">
         <Typography.Title level={3} style={{ textAlign: 'center', marginBottom: 8 }}>
-          Printer Dashboard
+          printer-bashbord
         </Typography.Title>
         <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center', marginBottom: 28 }}>
-          Учёт печатающей техники
+          Учёт оборудования и рабочих мест
         </Typography.Text>
 
         {error && (

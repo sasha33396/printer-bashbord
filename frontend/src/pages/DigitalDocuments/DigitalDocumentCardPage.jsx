@@ -7,8 +7,10 @@ import api from '../../api/api'
 import DigitalDocumentEditor from '../../components/DigitalDocumentEditor'
 import { DOCUMENTS, TERM_STATUS, displayField, documentError, documentTitle } from '../../utils/digitalDocuments'
 
-export default function DigitalDocumentCardPage() {
-  const { kind, id } = useParams()
+export default function DigitalDocumentCardPage({ recordId, recordKind } = {}) {
+  const params = useParams()
+  const kind = recordKind ?? params.kind
+  const id = recordId ?? params.id
   const config = Object.hasOwn(DOCUMENTS, kind) ? DOCUMENTS[kind] : null
   const navigate = useNavigate()
   const [record, setRecord] = useState(null)
@@ -19,7 +21,7 @@ export default function DigitalDocumentCardPage() {
   const currentRequest = useRef(null)
   const activeDocument = useRef(null)
   const screens = Grid.useBreakpoint()
-  const detailColumns = screens.md ? 2 : 1
+  const detailColumns = !recordId && screens.md ? 2 : 1
 
   const load = useCallback(async () => {
     if (!config) return

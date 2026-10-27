@@ -254,6 +254,8 @@ class WarehouseItem(Base):
     branch = relationship("Branch")
     department = relationship("Department")
 
+    cartridge = relationship("Cartridge", back_populates="item", uselist=False)
+
 
 class StockMovement(Base):
     __tablename__ = "stock_movements"
@@ -264,8 +266,57 @@ class StockMovement(Base):
     movement_type = Column(SAEnum(StockMovementType), nullable=False)
     quantity = Column(Integer, nullable=False)
     notes = Column(Text)
+    # Conversion to labelled cartridges is an accounting operation, not a disposable issue.
+    cartridge_conversion = Column(Boolean, nullable=False, default=False)
 
     item = relationship("WarehouseItem", back_populates="movements")
+
+
+class Cartridge(Base):
+    """Lifecycle of a labelled warehouse asset; quantities remain in the warehouse."""
+    __tablename__ = "cartridges"
+    __table_args__ = (UniqueConstraint("device_id", "slot", name="uq_cartridge_device_slot"),)
+
+    item_id = Column(Integer, ForeignKey("warehouse_items.id", ondelete="RESTRICT"), primary_key=True)
+    state = Column(String(20), nullable=False, default="ready")
+    holder_type = Column(String(20), nullable=False, default="warehouse")
+    employee_id = Column(Integer, ForeignKey("employees.id", ondelete="RESTRICT"), nullable=True)
+    contractor = Column(String(255), nullable=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="RESTRICT"), nullable=True)
+    slot = Column(String(100), nullable=True)
+    last_operation_date = Column(Date, nullable=False)
+    last_installed_at = Column(Date, nullable=True)
+    last_removed_at = Column(Date, nullable=True)
+    last_refill_sent_at = Column(Date, nullable=True)
+    last_refill_returned_at = Column(Date, nullable=True)
+    refill_count = Column(Integer, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
+    __mapper_args__ = {"version_id_col": version}
+
+    item = relationship("WarehouseItem", back_populates="cartridge")
+    employee = relationship("Employee")
+    device = relationship("Device")
+
+
+class CartridgeOperation(Base):
+    __tablename__ = "cartridge_operations"
+
+    id = Column(Integer, primary_key=True)
+    batch_id = Column(String(36), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("cartridges.item_id", ondelete="RESTRICT"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    operation = Column(String(30), nullable=False)
+    from_location = Column(String(1000), nullable=True)
+    to_location = Column(String(1000), nullable=False)
+    from_state = Column(String(20), nullable=True)
+    to_state = Column(String(20), nullable=False)
+    device_id = Column(Integer, nullable=True, index=True)
+    device_name = Column(String(500), nullable=True)
+    slot = Column(String(100), nullable=True)
+    contractor = Column(String(255), nullable=True)
+    actor = Column(String(255), nullable=False)
+    notes = Column(Text, nullable=True)
 
 
 class Employee(Base):
@@ -401,6 +452,48 @@ class OcsImportRun(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     actor = Column(String(255), nullable=True)
     report_json = Column(Text, nullable=False)
+
+
+class MapBuilding(Base):
+    __tablename__ = "map_buildings"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)
+    branch_id = Column(Integer, ForeignKey("branches.id", ondelete="RESTRICT"), nullable=True)
+    address = Column(String(500), nullable=True)
+    branch = relationship("Branch")
+
+
+class MapFloor(Base):
+    __tablename__ = "map_floors"
+
+    id = Column(Integer, primary_key=True)
+    building_id = Column(Integer, ForeignKey("map_buildings.id", ondelete="RESTRICT"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    width = Column(Float, nullable=False, default=40)
+    height = Column(Float, nullable=False, default=25)
+    shapes_json = Column(Text, nullable=False, default="[]")
+    background_filename = Column(String(100), nullable=True)
+    background_opacity = Column(Float, nullable=False, default=0.4)
+    revision = Column(Integer, nullable=False, default=1)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_by = Column(String(255), nullable=True)
+    building = relationship("MapBuilding")
+
+
+class MapMarker(Base):
+    __tablename__ = "map_markers"
+    __table_args__ = (UniqueConstraint("entity_type", "entity_id", name="uq_map_marker_entity"),)
+
+    id = Column(Integer, primary_key=True)
+    floor_id = Column(Integer, ForeignKey("map_floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_type = Column(String(30), nullable=False)
+    entity_id = Column(Integer, nullable=False)
+    entity_name = Column(String(500), nullable=False)
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+    rotation = Column(Float, nullable=False, default=0)
+    floor = relationship("MapFloor")
 
 
 Index(

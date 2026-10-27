@@ -11,6 +11,7 @@ import dayjs from 'dayjs'
 import api from '../../api/api'
 import { printBarcodeLabel } from '../../utils/barcode'
 import EquipmentPhotos from '../../components/EquipmentPhotos'
+import MapLocationLink from '../../components/MapLocationLink'
 import WarehouseItemModal from '../../components/WarehouseItemModal'
 import { equipmentLocation } from '../../utils/equipmentLocation'
 
@@ -93,8 +94,9 @@ function TransferModal({ open, item, workplaces, onClose, onSaved }) {
   </Modal>
 }
 
-export default function WarehouseItemPage() {
-  const { id } = useParams()
+export default function WarehouseItemPage({ recordId } = {}) {
+  const params = useParams()
+  const id = recordId ?? params.id
   const navigate = useNavigate()
   const [item, setItem] = useState(null)
   const [assignments, setAssignments] = useState([])
@@ -252,8 +254,10 @@ export default function WarehouseItemPage() {
           </div>
         </div>
         <Space wrap>
+          {item.tracking_type === 'asset' && !item.is_archived && <MapLocationLink entityType="warehouse_item" entityId={item.id} />}
           {!item.is_archived && <Button icon={<EditOutlined />} loading={openingEditor} onClick={openEditor}>Редактировать</Button>}
-          {item.tracking_type === 'asset' && !item.is_archived && <Button icon={<RetweetOutlined />} onClick={() => setTransferOpen(true)}>
+          {item.cartridge_managed && <Button type="primary" onClick={() => navigate(`/cartridges/${item.id}`)}>Оборот картриджа</Button>}
+          {item.tracking_type === 'asset' && !item.is_archived && !item.cartridge_managed && <Button icon={<RetweetOutlined />} onClick={() => setTransferOpen(true)}>
             {item.workplace ? 'Передать' : 'Установить'}
           </Button>}
           <Button type="primary" icon={<PrinterOutlined />} onClick={printLabel}>Распечатать штрихкод</Button>
@@ -292,7 +296,7 @@ export default function WarehouseItemPage() {
       <section className="workplace-section"><EquipmentPhotos itemId={item.id} /></section>
       <section className="workplace-section">
         <div className="workplace-section-header"><div><h2>История закрепления</h2><p>Рабочие места и сотрудники за всё время</p></div></div>
-        <Table rowKey="id" dataSource={assignments} columns={assignmentColumns} size="small" scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, hideOnSinglePage: true }} />
+        <Table rowKey="id" dataSource={assignments} columns={assignmentColumns} size="small" scroll={{ x: 'max-content' }} pagination={{ defaultPageSize: 10, hideOnSinglePage: true }} />
       </section>
       <section className="workplace-section">
         <div className="workplace-section-header">

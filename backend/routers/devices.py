@@ -27,7 +27,7 @@ from photo_storage import (
 )
 from printer_counter import read_counter
 from repair_invoice_storage import delete_invoice
-from models import Branch, Department, Device, DeviceType, DeviceStatus
+from models import Branch, Cartridge, Department, Device, DeviceType, DeviceStatus
 from routers.auth import get_current_user
 from schemas import DeviceCreate, DeviceUpdate, DeviceRead, EquipmentPhotoRead
 
@@ -507,6 +507,10 @@ def update_device(
 ):
     device = _get_or_404(db, device_id)
     data = payload.model_dump(exclude_unset=True)
+    if db.query(Cartridge.item_id).filter(Cartridge.device_id == device_id).first():
+        if (("department_id" in data and data["department_id"] != device.department_id)
+                or data.get("status") == DeviceStatus.decommissioned or data.get("device_type") == DeviceType.scanner):
+            raise HTTPException(409, "Сначала снимите картриджи перед переносом или списанием принтера")
     before = {field: getattr(device, field) for field in data}
     if "ip_address" in data and data["ip_address"] != device.ip_address:
         device.page_counter = None
@@ -621,6 +625,8 @@ def delete_device(
     current_user: dict = _auth,
 ):
     device = _get_or_404(db, device_id)
+    if db.query(Cartridge.item_id).filter(Cartridge.device_id == device_id).first():
+        raise HTTPException(409, "Сначала снимите картриджи с принтера")
     inventory_number = equipment_photo_key("device", device.id, device.inventory_number)
     repair_ids = [record.id for record in device.repair_records]
     add_device_event(

@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from database import get_db
-from models import Branch, Department, Employee, Workplace
+from models import Branch, Cartridge, Department, Employee, Workplace
 from routers.auth import get_current_user
 from schemas import EmployeeCreate, EmployeeRead, EmployeeUpdate
 
@@ -113,6 +113,11 @@ def update_employee(
     if not employee:
         raise HTTPException(status_code=404, detail="Сотрудник не найден")
     data = payload.model_dump(exclude_unset=True)
+    if db.query(Cartridge.item_id).filter(Cartridge.employee_id == employee_id, Cartridge.state != "written_off").first():
+        if data.get("is_active") is False or any(
+            field in data and data[field] != getattr(employee, field) for field in ("branch_id", "department_id")
+        ):
+            raise HTTPException(409, "Сначала передайте числящиеся за сотрудником картриджи")
     validate_ad_identity(
         db, data.get("ad_login", employee.ad_login),
         data.get("ad_domain", employee.ad_domain),
@@ -166,5 +171,7 @@ def delete_employee(
         raise HTTPException(status_code=404, detail="Сотрудник не найден")
     if db.query(Workplace.id).filter(Workplace.employee_id == employee_id).first():
         raise HTTPException(status_code=409, detail="Сотрудник закреплён за рабочим местом")
+    if db.query(Cartridge.item_id).filter(Cartridge.employee_id == employee_id).first():
+        raise HTTPException(409, "За сотрудником числятся картриджи")
     db.delete(employee)
     db.commit()

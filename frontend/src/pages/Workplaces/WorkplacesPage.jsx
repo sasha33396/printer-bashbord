@@ -1,11 +1,13 @@
+import { useRecordNavigation, useRecordPanel } from '../../components/RecordPanelContext'
+import PageHeading from '../../components/PageHeading'
+import KpiCards from '../../components/KpiCards'
 import Table from '../../components/FilterableTable'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button, Col, Form, Input, Modal, Popconfirm, Row, Select,
-  Space, Tag, Typography, message,
+  Space, Tag, Typography, message, Alert,
 } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
 import api from '../../api/api'
 
 export const WORKPLACE_STATUS = {
@@ -123,12 +125,14 @@ export function WorkplaceModal({ open, editing, branches, departments, employees
 }
 
 export default function WorkplacesPage() {
-  const navigate = useNavigate()
+  const navigate = useRecordNavigation()
+  const { revision, selected } = useRecordPanel()
   const [workplaces, setWorkplaces] = useState([])
   const [branches, setBranches] = useState([])
   const [departments, setDepartments] = useState([])
   const [employees, setEmployees] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [search, setSearch] = useState('')
   const [branchId, setBranchId] = useState()
   const [departmentId, setDepartmentId] = useState()
@@ -137,6 +141,7 @@ export default function WorkplacesPage() {
   const [editing, setEditing] = useState(null)
 
   const load = useCallback(async () => {
+    setLoadError(false)
     setLoading(true)
     try {
       const [workplaceResponse, branchResponse, departmentResponse, employeeResponse] = await Promise.all([
@@ -147,13 +152,14 @@ export default function WorkplacesPage() {
       setDepartments(departmentResponse.data)
       setEmployees(employeeResponse.data)
     } catch (error) {
+      setLoadError(true)
       message.error(apiError(error, 'Не удалось загрузить рабочие места'))
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, revision])
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -194,13 +200,13 @@ export default function WorkplacesPage() {
       title: '', key: 'actions', width: 190, fixed: 'right', align: 'right',
       render: (_, item) => <Space size={4}>
         <Button size="small" type="primary" onClick={() => navigate(`/workplaces/${item.id}`)}>Открыть</Button>
-        <Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(item); setModalOpen(true) }} />
+        <Button size="small" icon={<EditOutlined />} title="Редактировать рабочее место" aria-label="Редактировать рабочее место" onClick={() => { setEditing(item); setModalOpen(true) }} />
         <Popconfirm
           title="Удалить пустое рабочее место?"
           description="История оборудования сохранится"
           okText="Удалить" cancelText="Отмена" onConfirm={() => remove(item.id)}
         >
-          <Button size="small" danger icon={<DeleteOutlined />} />
+          <Button size="small" danger icon={<DeleteOutlined />} title="Удалить рабочее место" aria-label="Удалить рабочее место" />
         </Popconfirm>
       </Space>,
     },
@@ -211,8 +217,15 @@ export default function WorkplacesPage() {
     : departments
 
   return <>
+    {loadError && <Alert className="page-alert" type="error" showIcon message="Не удалось загрузить данные. Проверьте соединение и повторите запрос." action={<Button onClick={() => load()}>Повторить</Button>} />}
+    <PageHeading title="Рабочие места" description="Сотрудники, расположение, закреплённое оборудование и история изменений" />
+    <KpiCards loading={loading} items={[
+      { label: 'Всего рабочих мест', value: loadError ? null : workplaces.length },
+      { label: 'Занятые', value: loadError ? null : workplaces.filter((row) => row.status === 'occupied').length, tone: 'green' },
+      { label: 'Свободные', value: loadError ? null : workplaces.filter((row) => row.status === 'vacant').length },
+      { label: 'Без фото', value: loadError ? null : workplaces.filter((row) => !row.has_photo).length, tone: 'amber' },
+    ]} />
     <div className="page-toolbar" style={{ marginBottom: 18 }}>
-      <Typography.Title level={3} style={{ margin: 0 }}>Рабочие места</Typography.Title>
       <Input.Search placeholder="Место, сотрудник, кабинет" allowClear value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 260 }} />
       <Select
         placeholder="Все филиалы" allowClear showSearch optionFilterProp="label" value={branchId}
@@ -229,12 +242,15 @@ export default function WorkplacesPage() {
         options={Object.entries(WORKPLACE_STATUS).map(([value, item]) => ({ value, label: item.label }))} style={{ width: 160 }}
       />
       <div className="toolbar-actions">
+        <Button onClick={() => { setSearch(''); setBranchId(undefined); setDepartmentId(undefined); setStatusFilter(undefined) }}>Сбросить</Button>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setModalOpen(true) }}>Добавить место</Button>
       </div>
     </div>
     <Table
       rowKey="id" dataSource={filtered} columns={columns} loading={loading} size="small"
-      scroll={{ x: 'max-content' }} pagination={{ pageSize: 25, showTotal: (total) => `Рабочих мест: ${total}` }}
+      rowClassName={(row) => selected === `/workplaces/${row.id}` ? 'selected-record-row' : ''}
+      onRow={(row) => ({ onClick: (event) => { if (!event.target.closest('button,a,input')) navigate(`/workplaces/${row.id}`) } })}
+      scroll={{ x: 'max-content' }} pagination={{ defaultPageSize: 25, showTotal: (total) => `Рабочих мест: ${total}` }}
     />
     <WorkplaceModal
       open={modalOpen} editing={editing} branches={branches} departments={departments} employees={employees}
